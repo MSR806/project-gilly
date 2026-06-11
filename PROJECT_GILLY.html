@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Gilly</title>
+<style>
+  :root {
+    --ink:        #1a1d24;
+    --ink-soft:   #3c4453;
+    --muted:      #6b7280;
+    --accent:     #5b3df5;
+    --accent-2:   #8b5cf6;
+    --accent-ink: #4326c9;
+    --line:       #e6e3f5;
+    --bg-soft:    #f7f6fd;
+    --bg-card:    #ffffff;
+    --code-bg:    #f4f3fb;
+    --shadow:     0 1px 2px rgba(27,24,80,.04), 0 8px 24px rgba(27,24,80,.06);
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  body {
+    margin: 0;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    line-height: 1.65;
+    font-size: 16px;
+    background: #eceaf6;
+    font-feature-settings: "kern", "liga", "calt";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 820px;
+    margin: 40px auto;
+    background: var(--bg-card);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    position: relative;
+    padding: 72px 64px 60px;
+    background:
+      radial-gradient(1200px 400px at 85% -10%, rgba(139,92,246,.30), transparent 60%),
+      radial-gradient(900px 500px at -10% 120%, rgba(91,61,245,.28), transparent 55%),
+      linear-gradient(135deg, #2a1f6b 0%, #4326c9 55%, #6d3df0 100%);
+    color: #fff;
+  }
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: .22em;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255,255,255,.72);
+    margin: 0 0 18px;
+  }
+  .hero h1 {
+    font-size: 58px;
+    line-height: 1.02;
+    margin: 0 0 22px;
+    font-weight: 800;
+    letter-spacing: -.02em;
+  }
+  .hero .lede {
+    font-size: 19px;
+    line-height: 1.55;
+    color: rgba(255,255,255,.92);
+    max-width: 56ch;
+    margin: 0;
+    font-weight: 450;
+  }
+  .hero .lede strong { color: #fff; font-weight: 700; }
+
+  /* ---------- Body ---------- */
+  .content { padding: 56px 64px 64px; }
+
+  p { margin: 0 0 18px; color: var(--ink-soft); }
+
+  .intro-note {
+    font-size: 17px;
+    color: var(--ink-soft);
+    border-left: 3px solid var(--accent);
+    background: var(--bg-soft);
+    padding: 18px 22px;
+    border-radius: 0 10px 10px 0;
+    margin: 0 0 8px;
+  }
+
+  h2 {
+    font-size: 27px;
+    font-weight: 750;
+    letter-spacing: -.01em;
+    color: var(--ink);
+    margin: 52px 0 8px;
+    padding-bottom: 0;
+  }
+  h2 .num {
+    color: var(--accent);
+    font-weight: 800;
+    margin-right: 10px;
+  }
+  h3 {
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--accent-ink);
+    margin: 32px 0 12px;
+  }
+
+  .rule {
+    height: 1px;
+    border: 0;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--line) 40%, transparent 100%);
+    margin: 14px 0 26px;
+  }
+
+  strong { color: var(--ink); font-weight: 650; }
+
+  /* ---------- Flow diagram ---------- */
+  .flow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 10px;
+    margin: 26px 0 8px;
+  }
+  .flow-step {
+    flex: 1 1 0;
+    min-width: 130px;
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 16px;
+    font-size: 14px;
+    font-weight: 550;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    text-align: center;
+    justify-content: center;
+    position: relative;
+  }
+  .flow-arrow {
+    display: flex;
+    align-items: center;
+    color: var(--accent-2);
+    font-size: 20px;
+    font-weight: 700;
+  }
+
+  /* ---------- Tables ---------- */
+  table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 22px 0 8px;
+    font-size: 15px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  thead th {
+    background: var(--accent);
+    color: #fff;
+    text-align: left;
+    font-weight: 600;
+    padding: 13px 18px;
+    font-size: 13px;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+  }
+  tbody td {
+    padding: 13px 18px;
+    border-top: 1px solid var(--line);
+    color: var(--ink-soft);
+    vertical-align: top;
+  }
+  tbody tr:nth-child(even) { background: var(--bg-soft); }
+  tbody td:first-child {
+    font-weight: 650;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  /* ---------- Lists ---------- */
+  ul { margin: 18px 0; padding: 0; list-style: none; }
+  ul li {
+    position: relative;
+    padding: 6px 0 6px 28px;
+    color: var(--ink-soft);
+  }
+  ul li::before {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 15px;
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    background: var(--accent-2);
+    transform: rotate(45deg);
+  }
+  ul li strong { color: var(--ink); }
+
+  code {
+    font-family: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    color: var(--accent-ink);
+    padding: 2px 7px;
+    border-radius: 6px;
+    font-size: .88em;
+    font-weight: 550;
+  }
+
+  /* ---------- Category cards ---------- */
+  .cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 24px 0 8px;
+  }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 20px 22px;
+    background: linear-gradient(180deg, #fff 0%, var(--bg-soft) 100%);
+  }
+  .card h4 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--accent-ink);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card h4 .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--accent);
+  }
+  .card p { margin: 0; font-size: 14px; line-height: 1.55; }
+
+  /* ---------- Callout ---------- */
+  .callout {
+    background: linear-gradient(135deg, var(--bg-soft), #eef0fe);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 22px 24px;
+    margin: 22px 0 8px;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+
+  /* ---------- Footer ---------- */
+  .footer {
+    padding: 28px 64px 40px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 13px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .footer .brand { font-weight: 700; color: var(--accent-ink); letter-spacing: .02em; }
+
+  /* ---------- Print ---------- */
+  @page { margin: 14mm; }
+  @media print {
+    body { background: #fff; }
+    .page { box-shadow: none; margin: 0; border-radius: 0; max-width: none; }
+    .hero { border-radius: 0; }
+    h2 { break-after: avoid; }
+    table, .flow, .cards, .callout, .intro-note { break-inside: avoid; }
+    .card { break-inside: avoid; }
+  }
+
+  @media (max-width: 720px) {
+    .hero, .content, .footer { padding-left: 28px; padding-right: 28px; }
+    .hero h1 { font-size: 42px; }
+    .cards { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="hero">
+    <p class="eyebrow">Internal Platform</p>
+    <h1>Project Gilly</h1>
+    <p class="lede"><strong>Gilly is an internal platform for building AI agents that do real work — and connecting them to the places work already happens.</strong></p>
+  </header>
+
+  <main class="content">
+
+    <p class="intro-note">Today, AI inside most companies lives in scattered chat windows and one-off scripts. Prompts get lost, every team rebuilds the same automations, and no one can see what's running or trust it at scale. Gilly turns that scattered activity into a shared, governed platform: build an agent once, reuse it everywhere, and let it run safely on its own.</p>
+
+    <h2>Why a Platform: Weeks → Hours</h2>
+    <hr class="rule">
+    <p>We've already built agents like this by hand:</p>
+    <ul>
+      <li><strong>QA agent</strong> — a web chat interface that answers questions by looking across our different repositories.</li>
+      <li><strong>Ampy</strong> — a Slack bot that answers questions based on our Amplitude dashboards.</li>
+    </ul>
+    <p>Each took <strong>weeks</strong> to build from scratch — wiring up the interface, the triggers, the data access, the deployment.</p>
+    <div class="callout">
+      <p>There are dozens more use cases like these waiting to be built. We shouldn't have to build each one from the ground up. With Gilly, the same kind of agent can be assembled in <strong>a couple of hours, by anyone</strong> — no custom infrastructure, just configuration. The platform is the build effort, done once, so every future agent is cheap.</p>
+    </div>
+
+    <h2>The Idea in One Picture</h2>
+    <hr class="rule">
+    <div class="flow">
+      <div class="flow-step">Build an agent</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Give it instructions, tools &amp; skills</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Connect a trigger</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Pick where results go</div>
+    </div>
+    <p>An <strong>agent</strong> is an AI worker built for a specific job — reviewing pull requests, writing the weekly report, answering a team's questions, auditing a codebase. You configure what it does, what it's allowed to touch, and how it starts.</p>
+
+    <h2><span class="num">Step 1</span>Create an Agent</h2>
+    <hr class="rule">
+    <p>First you create an agent and configure it. These pieces are what turn a blank agent into one built for a specific job:</p>
+    <table>
+      <thead>
+        <tr><th>Piece</th><th>What it is</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Instructions</td><td>The agent's job, scope, and style</td></tr>
+        <tr><td>Tools / MCPs</td><td>Controlled access to internal and external systems</td></tr>
+        <tr><td>Skills</td><td>Reusable capabilities you attach to an agent</td></tr>
+        <tr><td>Subagents</td><td>Specialized helpers a main agent can call on</td></tr>
+        <tr><td>Targets</td><td>Where the results land</td></tr>
+      </tbody>
+    </table>
+    <p>That's how you get an agent. People can create as many different types as they need — a PR reviewer, a report writer, a support analyzer, a frontend helper.</p>
+
+    <h2><span class="num">Step 2</span>Connect It to a Trigger</h2>
+    <hr class="rule">
+    <p>Once an agent exists, you connect it to wherever the work begins:</p>
+    <ul>
+      <li><strong>Slack bot</strong> — tag <code>@gilly-review</code> in a thread and the agent replies right there</li>
+      <li><strong>Cron schedule</strong> — a report runs every weekday at 9 AM</li>
+      <li><strong>GitHub trigger</strong> — a review kicks off when a PR opens</li>
+      <li><strong>Direct chat</strong> — open the platform and just talk to the agent</li>
+      <li><strong>Fleet</strong> — select an agent, select the repositories, and trigger it to run the same job across all of them at once</li>
+    </ul>
+
+    <h3>About Fleet</h3>
+    <p>Fleet is the trigger for running one agent across many repositories or services at once — inspired by Spotify's Backstage. Pick the agent, pick the repos, give the task: upgrade a package everywhere, apply one migration across all services, audit security org-wide, or open the same change as PRs across dozens of repos.</p>
+    <p>Each repository gets its own agent run with its own outcome — a PR opened, a blocker reported, no action needed, or escalated for a human. The Fleet view tracks all of it: done, failed, pending, needs follow-up.</p>
+
+    <h2>Where Results Go (Targets)</h2>
+    <hr class="rule">
+    <p>Back into the Slack thread, a specific channel, an email, the web UI, or attached to a PR. Some agents just do the work and stay quiet — targets are optional.</p>
+
+    <h2>What It's Good For</h2>
+    <hr class="rule">
+    <div class="cards">
+      <div class="card">
+        <h4><span class="dot"></span>Engineering</h4>
+        <p>Fix bugs, raise PRs, review PRs, summarize changes, investigate failing tests, run dependency upgrades, generate release notes.</p>
+      </div>
+      <div class="card">
+        <h4><span class="dot"></span>Operations</h4>
+        <p>Weekly health checks, incident summaries, recurring status updates, plain-language reports from internal tools.</p>
+      </div>
+      <div class="card">
+        <h4><span class="dot"></span>Growth &amp; Business</h4>
+        <p>Daily campaign reports, performance trends, stakeholder updates, answering team questions from analytics and CRM data.</p>
+      </div>
+      <div class="card">
+        <h4><span class="dot"></span>Platform &amp; DevEx</h4>
+        <p>Team-specific Slack bots, repo hygiene checks, large-scale coordinated changes, and checking whether standards are being followed across repos.</p>
+      </div>
+    </div>
+
+    <h2>Example Setups</h2>
+    <hr class="rule">
+    <table>
+      <thead>
+        <tr><th>Setup</th><th>How it works</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>QA agent</td><td>Web chat that answers questions by searching across repositories</td></tr>
+        <tr><td>Ampy</td><td>Slack bot that answers questions from Amplitude dashboards</td></tr>
+        <tr><td>PR review agent</td><td>Starts on a new PR, posts review notes</td></tr>
+        <tr><td>Dev Slack bot</td><td><code>@gilly-dev</code> answers engineering questions, does the work, and raises PRs</td></tr>
+        <tr><td>Growth report</td><td>Runs each morning, posts campaign insights to Slack</td></tr>
+        <tr><td>Upgrade fleet</td><td>Opens upgrade PRs across selected repos</td></tr>
+        <tr><td>Support analysis</td><td>Summarizes tickets and recurring customer issues</td></tr>
+        <tr><td>Platform ops bot</td><td>Answers ops questions and runs approved checks</td></tr>
+      </tbody>
+    </table>
+
+  </main>
+
+  <footer class="footer">
+    <span class="brand">Project Gilly</span>
+    <span>Build once · Reuse everywhere · Run safely</span>
+  </footer>
+
+</div>
+</body>
+</html>
