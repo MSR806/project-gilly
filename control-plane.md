@@ -30,12 +30,11 @@ Everything in the control plane is authored configuration that an agent run draw
 
 Any agent can act as a **subagent** — when one agent delegates to another, the delegate is just an agent from the same registry. There is no separate subagent registry.
 
-**How work starts and where it lands** — built on connections; a run begins from a channel, a trigger, or the Fleet, and its result optionally lands on a target:
+**How work starts** — built on connections; a run begins from a channel, a trigger, or the Fleet:
 
 - [`connection.md`](connection.md) — the foundation: identity + secrets for an external system (Slack bot, GitHub, Jira…), reused by the surfaces below
-- [`channel.md`](channel.md) — interactive conversational surfaces (Slack, WhatsApp, Telegram, and the default Web chat)
-- [`trigger.md`](trigger.md) — one-shot event sources that fire a run (GitHub events, Cron)
+- [`channel.md`](channel.md) — interactive conversational surfaces (Slack, WhatsApp, Telegram, and the default Web chat); replies land in their own thread
+- [`trigger.md`](trigger.md) — one-shot event sources that fire a run (GitHub events, Cron); can optionally deliver the result to a channel
 - [`fleet.md`](fleet.md) — fan-out launcher: one agent across many repos
-- [`target.md`](target.md) — where an agent's final message is delivered (optional)
 
 A run produces a **Session** (and, for Fleet, a batch of them) — created by the system, not authored, so it isn't a building block here.

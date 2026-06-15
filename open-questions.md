@@ -21,4 +21,7 @@ We use "channel" for the conversational surface, which collides with a Slack roo
 [`connection.md`](connection.md) says secrets are "stored securely and supplied to a run only when needed," but the actual vault and injection mechanism isn't written up. No `secrets.md` yet.
 
 ## Web UI not documented
-The configuration + monitoring surface (where all of the above is authored and observed) has no doc yet.
+The configuration + monitoring surface (where all of the above is authored and observed) has no doc
+
+## Target dropped — may re-emerge
+We decided not to model "Target" as its own concept. Channels reply in their own thread; a [trigger](trigger.md) optionally carries a "deliver to" destination pointing at a channel. If delivery later gets rich — multiple destinations at once, per-destination formatting, non-channel destinations like standalone email — a first-class Target may be worth reintroducing. 
