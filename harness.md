@@ -1,13 +1,13 @@
 # Project Gilly — Harness
 
-**The harness is the agent framework that drives the agent loop. Gilly's primary harness is the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview).**
+**The harness is the agent framework that drives the agent loop. Gilly's primary harness is the Claude Agent SDK.**
 
 Below the control plane sit two layers, and both are pluggable:
 
 - **Harness** — the agent framework / loop. *This doc.* **Decided: Claude Agent SDK.**
-- **Runtime** — the sandbox the harness runs inside. *See `runtime.md` (pending).* **Not yet decided.**
+- **Runtime** — the sandbox the harness runs inside. *See `runtime.md`.*
 
-We build **one harness and one runtime** to start — Claude is the primary harness. The interfaces stay pluggable so we can add others later, but we are **not** building the full harness × runtime matrix yet.
+We build **one harness and one runtime** to start — Claude is the primary harness. The architecture keeps the harness swappable, but we are not building more than one yet.
 
 **Claude-first, not Claude-only.**
 
@@ -20,120 +20,39 @@ Control Plane (Gilly)   →  what runs, when, with what access, where results go
    Harness              →  the agent loop — reasoning, tool calls, file edits,
                             MCP, skills, subagents, structured result               [Claude Agent SDK]
    Runtime              →  the sandbox the harness runs inside — FS, shell,
-                            secrets, network policy, lifecycle                       [TBD → runtime.md]
+                            network, lifecycle                                       [the runtime]
 ```
 
-The harness runs **inside** the runtime. The control plane picks a `(harness, runtime)` pair per run, the runtime provisions the box, and the harness runs the agent loop within it.
+The harness runs **inside** the runtime. The control plane picks a harness + runtime pair per run, the runtime provisions the box, and the harness runs the agent loop within it.
 
 ---
 
 ## What a Harness Does
 
-Given a task and a workspace, the harness drives the loop to a result:
+Given a task and a workspace, the harness drives the loop to a result: it reasons and plans, calls tools and MCP servers, reads and edits files, runs shell commands, uses skills, delegates to subagents, works through a test/debug loop, and returns a structured result.
 
-- reasons and plans locally
-- calls tools and MCP servers
-- reads and edits files
-- runs shell / CLI commands
-- uses skills
-- delegates to subagents
-- loops through test/debug
-- returns a structured result
-
-It does **not** provision its own sandbox, hold long-lived credentials, or decide where results go — those belong to the runtime and the control plane.
+It does **not** provision its own sandbox, hold long-lived credentials, or decide where results go — those belong to the runtime and the control plane, which stays the source of truth for what may run and with what access.
 
 ---
 
 ## Why Claude Is the Primary Harness
 
-Because Gilly owns the platform layer and the runtime owns the box, the harness only has to be excellent at driving work to completion. Claude is strong at exactly that.
+Because Gilly owns the platform layer and the runtime owns the box, the harness only has to be excellent at one thing: driving real work to completion inside a sandbox. The Claude Agent SDK is the strongest harness for exactly that, and especially for **coding work** — reading and editing files, running shell commands, understanding a repository, calling MCP tools, delegating to subagents, and looping until tests pass.
 
-| Capability | Why it matters | Claude |
-| --- | --- | --- |
-| Agent loop | Core of every run | Strong |
-| File read/write | Engineering + docs agents | Strong |
-| Shell / CLI | Repo work, tests | Strong |
-| MCP integrations | Internal tools & data | Strong |
-| Skills | Reusable capabilities | Strong |
-| Subagents | Complex, delegated tasks | Strong |
-| Repo understanding | Fleet + code agents | Strong |
-| Structured output | Result contract | Good — enforced by the Gilly adapter |
-
-It behaves like a programmable agentic worker, which covers Gilly's highest-value cases — PR review, repo audits, package upgrades, test investigation, Fleet — and non-coding agents (analytics, support, incident summaries) when tools and MCPs are scoped right.
+That coding strength is the core of Gilly's highest-value cases — PR review, repo audits, package upgrades, test investigation, Fleet — and it carries over to non-coding agents (analytics, support, incident summaries) when tools and MCPs are scoped right. For an MVP whose first wins are engineering-heavy, the Claude SDK is the obvious default.
 
 ---
 
-## The Harness Interface
+## Why the Harness Must Stay Replaceable
 
-One neutral interface, so the harness is swappable even while we ship only Claude.
+The Claude Agent SDK's strength is also its boundary: **it is built around Claude.** It is the best harness for coding, but it is not a neutral, any-model runner — you cannot simply point it at a different model family when a future case calls for one.
 
-```ts
-interface Harness {
-  run(input: HarnessInput): Promise<HarnessResult>
-}
+That is the whole reason the harness is a **replaceable layer** rather than a fixed part of the platform. Over time Gilly will hit cases the Claude SDK isn't the right tool for — a cheaper model for high-volume simple tasks, a different model family a team prefers, or a workflow some other framework expresses better. When that happens we should be able to drop in a different harness — a model-agnostic one like the OpenAI Agents SDK, say — **without touching the control plane or the runtime**.
 
-class ClaudeHarness implements Harness { /* the one we build now */ }
-
-// later, only if a real need forces it:
-class OpenAIHarness    implements Harness {}
-class DeepAgentsHarness implements Harness {}
-```
-
-- **`HarnessInput`** — agent config, task, a **workspace handle from the runtime**, the allowed tools / MCPs / skills / subagents, effective permissions, and an output schema.
-- **`HarnessResult`** — status (`succeeded` / `failed` / `needs_approval` / `blocked` / `no_action_needed`), summary, artifacts, proposed changes / PR URL, and run metrics (tokens, tool calls, cost).
-
-The harness reaches the filesystem and shell **through the runtime's workspace handle** — it never boots its own box. The matching `Runtime` interface lives in `runtime.md`.
-
----
-
-## Harness vs Control Plane
-
-| Gilly control plane | Claude harness (per run) |
-| --- | --- |
-| Agent registry & versioning | Reasoning inside the run |
-| Trigger routing (Slack / GitHub / cron / chat / Fleet) | Local task planning |
-| Fleet fan-out & result aggregation | Tool & MCP calls |
-| Tool / MCP / skill / subagent registries | File edits |
-| RBAC, permissions, approvals (source of truth) | Shell commands (within runtime policy) |
-| Run history, audit logs, dashboards | Skill execution & subagent delegation |
-| Target publishing, retries, escalation | Test/debug loop → final structured result |
-
-The harness can enforce runtime-level tool permissions, but **Gilly is the source of truth.** Users think in Gilly concepts; the harness stays hidden behind the UI.
-
----
-
-## Fleet and the Harness
-
-Fleet is **never** one giant Claude agent juggling many repos in one context. It's one control-plane Fleet run that fans out into **many independent harness runs — one per repo/service**, each in its own runtime sandbox. Each child run ends with a clear outcome (`pr_opened`, `completed_no_action`, `blocked`, `failed`, `needs_human_followup`, `pending`, `running`) that the control plane aggregates.
+So the architecture commits to Claude as the default harness while keeping the harness boundary clean: the control plane talks to a harness through a stable handoff, the harness receives a workspace from the runtime, and nothing above or below it depends on which harness is running. Best harness today, swappable tomorrow.
 
 ---
 
 ## Why Not the Alternatives (as the harness)
 
-| Harness option | Verdict | Reason |
-| --- | --- | --- |
-| **Claude Agent SDK** | **Primary** | Strong file/shell/MCP/skills/subagents; ideal for repo work & Fleet children; fastest MVP |
-| OpenAI Agents SDK | Later, optional | Good OpenAI-native flows, but less aligned with Claude-style repo/shell/Fleet execution |
-| DeepAgents / LangGraph | Later, only if needed | Its orchestration & durable state duplicate Gilly's control plane — extra layers for MVP |
-| Custom from scratch | Avoid | Too slow, unnecessary |
-
-Because Gilly owns the scheduler, Fleet model, permissions, and routing, the harness only needs to run work well inside a box. That's Claude.
-
----
-
-## The Short Version
-
-```text
-Claude-first, not Claude-only.
-Gilly owns the platform.
-The harness runs the agent loop.
-The runtime is the sandbox it runs in — a separate, pluggable decision (runtime.md).
-One harness and one runtime to start; interfaces stay swappable.
-Fleet fans out through Gilly into many harness runs, not one giant agent context.
-```
-
----
-
-## Open Questions (harness-scoped)
-
-The final `HarnessInput` / `HarnessResult` schema; how permissions and approvals are surfaced into the loop; how structured output is enforced; how subagents are configured; which specific Claude Agent SDK features (hooks, MCP, skills, subagents) we depend on. *Runtime/sandbox questions move to `runtime.md`.*
+The **OpenAI Agents SDK** is itself model- and provider-agnostic — through adapters like LiteLLM it can drive Claude, Gemini, or other models — which makes it a strong candidate the day we need that model flexibility. It isn't the default today only because it's less proven for the repo- and shell-heavy coding execution where the Claude SDK is strongest. **DeepAgents / LangGraph** brings orchestration and durable state that largely duplicate Gilly's control plane, adding layers an MVP doesn't need. A **custom harness from scratch** is unnecessary work. Each stays available behind the replaceable-harness boundary, but none displaces Claude as the default.
