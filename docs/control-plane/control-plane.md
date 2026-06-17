@@ -14,7 +14,7 @@ Control Plane (Gilly)   →  what runs, when, with what access, where results go
    Runtime              →  the sandbox the harness runs inside                       [AWS Bedrock AgentCore]
 ```
 
-For each run, the control plane resolves *which agent* with *what configuration*, asks the runtime for a box, hands the harness a workspace + task, and routes the result to a target. See [`harness.md`](harness.md) and [`runtime.md`](runtime.md) for the two layers below.
+For each run, the control plane resolves *which agent* with *what configuration*, creates or resumes a [Session](session-lifecycle.md), asks the runtime for a box, hands the harness a workspace + task, and routes the result to a target. See [`harness.md`](harness.md), [`runtime.md`](runtime.md), and [`session-lifecycle.md`](session-lifecycle.md) for the layers and lifecycle below.
 
 ---
 
@@ -37,4 +37,4 @@ Any agent can act as a **subagent** — when one agent delegates to another, the
 - [`trigger.md`](trigger.md) — one-shot event sources that fire a run (GitHub events, Cron); can optionally deliver the result to a channel
 - [`fleet.md`](fleet.md) — fan-out launcher: one agent across many repos
 
-A run produces a **Session** (and, for Fleet, a batch of them) — created by the system, not authored, so it isn't a building block here.
+A run belongs to a **Session** (and, for Fleet, a batch creates one Session per target) — created by the system, not authored, so it isn't a building block here. Sessions, Runs, Follow-ups, and Workspaces are operational records owned by the control plane; see [`session-lifecycle.md`](session-lifecycle.md).
