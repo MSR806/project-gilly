@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.log
+
+# Local env + secrets
+.env
+.env.local
+
+# SQLite operational store
+*.db
+*.db-shm
+*.db-wal
+data/
+
+# Bun
+.bun/

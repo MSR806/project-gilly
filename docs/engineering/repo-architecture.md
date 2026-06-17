@@ -28,6 +28,8 @@ project-gilly/
 
 `core/` is the shared domain model. `db/` holds only operational records (Sessions, Runs, follow-up queue) — never agent config, which lives in JSON.
 
+A third seam lives inside the control plane: the **`Channel` interface** (`apps/control-plane/src/channels/channel.ts`) is the named inbound surface. Slack conforms to it today; Web/Telegram are future implementations, each translating its native event into the engine's input — interface + composition, no inheritance.
+
 ---
 
 ## Toolchain — Bun

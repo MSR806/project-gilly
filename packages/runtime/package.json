@@ -1,0 +1,15 @@
+{
+  "name": "@gilly/runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@gilly/harness-protocol": "workspace:*"
+  }
+}

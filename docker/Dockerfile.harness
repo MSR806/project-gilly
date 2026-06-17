@@ -1,0 +1,13 @@
+# Claude harness — implements the AgentCore runtime contract (/invocations, /ping on :8080).
+# Same image runs locally and (later) inside AWS Bedrock AgentCore unchanged.
+FROM oven/bun:1 AS base
+WORKDIR /app
+
+# Install deps from the workspace root so internal packages resolve.
+COPY package.json bun.lock ./
+COPY packages ./packages
+COPY apps/harness-claude ./apps/harness-claude
+RUN bun install --frozen-lockfile
+
+EXPOSE 8080
+CMD ["bun", "run", "--filter", "@gilly/harness-claude", "start"]

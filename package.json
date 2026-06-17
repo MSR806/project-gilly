@@ -1,0 +1,22 @@
+{
+  "name": "gilly",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun test",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "dev:harness": "bun run --filter '@gilly/harness-claude' dev",
+    "dev:control-plane": "bun run --filter '@gilly/control-plane' dev"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "latest",
+    "@types/bun": "latest",
+    "typescript": "latest"
+  }
+}

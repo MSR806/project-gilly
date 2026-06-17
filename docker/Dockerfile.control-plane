@@ -1,0 +1,11 @@
+# Gilly control plane — Slack (Socket Mode) listener + session/run engine.
+FROM oven/bun:1 AS base
+WORKDIR /app
+
+COPY package.json bun.lock ./
+COPY packages ./packages
+COPY apps/control-plane ./apps/control-plane
+RUN bun install --frozen-lockfile
+
+# Agent JSON config is mounted at runtime; SQLite store lives on a volume.
+CMD ["bun", "run", "--filter", "@gilly/control-plane", "start"]

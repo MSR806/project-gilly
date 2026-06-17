@@ -1,0 +1,30 @@
+# Local two-image setup. control-plane → harness over the Docker network,
+# exercising the LocalRuntimeProvider against the AgentCore container contract.
+services:
+  harness:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.harness
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    ports:
+      - "8080:8080"
+
+  control-plane:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.control-plane
+    depends_on:
+      - harness
+    environment:
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+      HARNESS_URL: http://harness:8080
+      AGENTS_DIR: /app/config/agents
+      DATABASE_PATH: /data/gilly.db
+    volumes:
+      - ../config/agents:/app/config/agents:ro
+      - gilly-data:/data
+
+volumes:
+  gilly-data:
