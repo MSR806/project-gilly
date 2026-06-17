@@ -67,11 +67,11 @@ export function createEngine(deps: {
           await input.reply(result.finalText);
         } else {
           failRun(db, run.id, result.error ?? "unknown error");
-          await input.reply("⚠️ " + (result.error ?? "run failed"));
+          await input.reply(`⚠️ ${result.error ?? "run failed"}`);
         }
       } catch (e) {
         failRun(db, run.id, String(e));
-        await input.reply("⚠️ " + String(e));
+        await input.reply(`⚠️ ${String(e)}`);
       }
 
       const next = dequeueFollowUp(db, session.id);

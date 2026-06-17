@@ -12,7 +12,8 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "dev:harness": "bun run --filter '@gilly/harness-claude' dev",
-    "dev:control-plane": "bun run --filter '@gilly/control-plane' dev"
+    "dev:control-plane": "bun run --filter '@gilly/control-plane' dev",
+    "dev:web": "bun run --filter '@gilly/web' dev"
   },
   "devDependencies": {
     "@biomejs/biome": "latest",
