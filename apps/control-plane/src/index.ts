@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { createDb } from "@gilly/db";
 import { LocalRuntimeProvider } from "@gilly/runtime";
 import type { Channel } from "./channels/channel.ts";
@@ -8,8 +8,11 @@ import { createWebChannel } from "./channels/web.ts";
 import { loadAgents } from "./config.ts";
 import { createEngine } from "./engine.ts";
 
-const AGENTS_DIR = process.env.AGENTS_DIR ?? "./config/agents";
-const DATABASE_PATH = process.env.DATABASE_PATH ?? "./data/gilly.db";
+// Defaults are anchored to the repo root (this file lives at apps/control-plane/src/),
+// so dev works regardless of cwd. Env vars override (Docker sets absolute paths).
+const repoRoot = resolve(import.meta.dir, "../../..");
+const AGENTS_DIR = process.env.AGENTS_DIR ?? resolve(repoRoot, "config/agents");
+const DATABASE_PATH = process.env.DATABASE_PATH ?? resolve(repoRoot, "data/gilly.db");
 const HARNESS_URL = process.env.HARNESS_URL ?? "http://localhost:8080";
 const WEB_PORT = Number(process.env.WEB_PORT ?? 4000);
 const { SLACK_BOT_TOKEN, SLACK_APP_TOKEN } = process.env;
