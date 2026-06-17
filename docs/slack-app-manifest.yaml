@@ -20,12 +20,14 @@ oauth_config:
       - assistant:write # assistant.threads.* (status, prompts, title)
       - chat:write # post replies
       - im:history # read messages in the assistant thread
+      - app_mentions:read # receive @mentions in channels
 settings:
   event_subscriptions:
     bot_events:
       - assistant_thread_started
       - assistant_thread_context_changed
       - message.im
+      - app_mention
   socket_mode_enabled: true
   interactivity:
     is_enabled: false

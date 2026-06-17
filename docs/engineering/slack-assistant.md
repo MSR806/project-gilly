@@ -1,6 +1,6 @@
 # Project Gilly — Slack Assistant Channel
 
-**Gilly's Slack channel uses Slack's AI *assistant* app surface, not plain `@mention` bots.** Users get a dedicated side-panel container with suggested prompts, a "thinking…" status, auto-titled threads, and a History tab. The execution model is unchanged — the win is the native UX shell. Implemented in `apps/control-plane/src/channels/slack.ts`. See [`channel.md`](../control-plane/channel.md).
+**Gilly's Slack channel uses Slack's AI *assistant* app surface and also responds to channel `@mention`s.** The assistant panel gives a dedicated side-panel container with suggested prompts, a "thinking…" status, auto-titled threads, and a History tab; `@gilly` in any channel the bot is in starts a run that replies in-thread. Both feed the same engine. Implemented in `apps/control-plane/src/channels/slack.ts`. See [`channel.md`](../control-plane/channel.md).
 
 ---
 
