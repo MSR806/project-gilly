@@ -33,6 +33,10 @@ export function createWebChannel(deps: {
       return json(list);
     }
 
+    if (req.method === "POST" && pathname === "/api/chat") {
+      return chat(req, deps.engine);
+    }
+
     return json({ error: "not found" }, 404);
   }
 
@@ -44,3 +48,52 @@ export function createWebChannel(deps: {
     },
   };
 }
+
+/** POST /api/chat → Server-Sent Events of StreamEvents; reuses a conversation via id. */
+async function chat(
+  req: Request,
+  engine: { stream: (input: ChatStreamInput) => AsyncIterable<unknown> },
+): Promise<Response> {
+  let body: { agentId?: string; message?: string; conversationId?: string };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return json({ error: "invalid JSON body" }, 400);
+  }
+  if (!body.agentId || !body.message) return json({ error: "agentId and message required" }, 400);
+
+  const conversationId = body.conversationId ?? crypto.randomUUID();
+  const events = engine.stream({
+    agentId: body.agentId,
+    source: "web",
+    sourceKey: `web:${conversationId}`,
+    userMessage: body.message,
+  });
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const event of events) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        }
+      } catch (e) {
+        const error = { type: "error", error: String(e) };
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(error)}\n\n`));
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      "x-conversation-id": conversationId,
+      ...cors,
+    },
+  });
+}
+
+type ChatStreamInput = { agentId: string; source: string; sourceKey: string; userMessage: string };

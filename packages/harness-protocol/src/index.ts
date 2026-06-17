@@ -27,3 +27,15 @@ export type InvocationResult = z.infer<typeof InvocationResult>;
 /** AgentCore `GET /ping` health response. */
 export const PingResult = z.object({ status: z.literal("Healthy") });
 export type PingResult = z.infer<typeof PingResult>;
+
+/** A streamed invocation: incremental `token`s, then a terminal `done` or `error`. */
+export const StreamEvent = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("token"), text: z.string() }),
+  z.object({
+    type: z.literal("done"),
+    finalText: z.string(),
+    harnessSessionId: z.string().nullable(),
+  }),
+  z.object({ type: z.literal("error"), error: z.string() }),
+]);
+export type StreamEvent = z.infer<typeof StreamEvent>;

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type Agent = {
@@ -49,16 +50,18 @@ export default function HomePage() {
       ) : (
         <ul className="card-list">
           {agents.map((agent) => (
-            <li key={agent.id} className="card">
-              <p className="card__name">{agent.name}</p>
-              <div className="card__meta">
-                <span>
-                  ID: <code>{agent.id}</code>
-                </span>
-                <span>
-                  Model: <code>{agent.model}</code>
-                </span>
-              </div>
+            <li key={agent.id}>
+              <Link href={`/chat/${agent.id}`} className="card card--link">
+                <p className="card__name">{agent.name}</p>
+                <div className="card__meta">
+                  <span>
+                    ID: <code>{agent.id}</code>
+                  </span>
+                  <span>
+                    Model: <code>{agent.model}</code>
+                  </span>
+                </div>
+              </Link>
             </li>
           ))}
         </ul>

@@ -1,4 +1,4 @@
-import type { InvocationRequest, InvocationResult } from "@gilly/harness-protocol";
+import type { InvocationRequest, InvocationResult, StreamEvent } from "@gilly/harness-protocol";
 import type { RuntimeProvider } from "./provider.ts";
 
 /**
@@ -10,6 +10,10 @@ export class AgentCoreRuntimeProvider implements RuntimeProvider {
   readonly name = "agentcore";
 
   invoke(_req: InvocationRequest): Promise<InvocationResult> {
+    throw new Error("AgentCoreRuntimeProvider is not implemented in the MVP");
+  }
+
+  invokeStream(_req: InvocationRequest): AsyncIterable<StreamEvent> {
     throw new Error("AgentCoreRuntimeProvider is not implemented in the MVP");
   }
 

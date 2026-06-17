@@ -10,7 +10,7 @@ import {
   hasActiveRun,
   setHarnessSession,
 } from "@gilly/db";
-import type { RuntimeProvider } from "@gilly/runtime";
+import type { RuntimeProvider, StreamEvent } from "@gilly/runtime";
 
 export type EngineInput = {
   agentId: string;
@@ -19,6 +19,9 @@ export type EngineInput = {
   userMessage: string;
   reply: (text: string) => Promise<void>;
 };
+
+/** Streaming input: same as EngineInput but the caller consumes events instead of `reply`. */
+export type StreamInput = Omit<EngineInput, "reply">;
 
 /** Orchestrates the session/run lifecycle. Runtime- and transport-agnostic. */
 export function createEngine(deps: {
@@ -80,5 +83,48 @@ export function createEngine(deps: {
     }
   }
 
-  return { handle };
+  /**
+   * Streaming variant for request-scoped channels (web chat): yields tokens as they
+   * arrive while still recording the Session/Run. No follow-up queue — each call is
+   * one request; concurrency is the caller's to serialize.
+   */
+  async function* stream(input: StreamInput): AsyncIterable<StreamEvent> {
+    const agent = agents.get(input.agentId);
+    if (!agent) {
+      yield { type: "error", error: `Unknown agent: ${input.agentId}` };
+      return;
+    }
+
+    const session = getOrCreateSession(db, {
+      agentId: input.agentId,
+      source: input.source,
+      sourceKey: input.sourceKey,
+    });
+    const run = createRun(db, session.id, input.userMessage);
+
+    let accumulated = "";
+    try {
+      const events = runtime.invokeStream({
+        agent,
+        userMessage: input.userMessage,
+        resumeSessionId: session.harnessSessionId ?? undefined,
+      });
+      for await (const event of events) {
+        if (event.type === "token") {
+          accumulated += event.text;
+        } else if (event.type === "done") {
+          if (event.harnessSessionId) setHarnessSession(db, session.id, event.harnessSessionId);
+          completeRun(db, run.id, event.finalText || accumulated);
+        } else {
+          failRun(db, run.id, event.error);
+        }
+        yield event;
+      }
+    } catch (e) {
+      failRun(db, run.id, String(e));
+      yield { type: "error", error: String(e) };
+    }
+  }
+
+  return { handle, stream };
 }
