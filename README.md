@@ -21,12 +21,16 @@ config/agents         *.json agent definitions
 
 ```bash
 bun install
-cp .env.example .env        # fill in ANTHROPIC_API_KEY + Slack tokens
+
+# Per-app env — each app auto-loads its own .env:
+cp apps/harness-claude/.env.example  apps/harness-claude/.env   # ANTHROPIC_API_KEY
+cp apps/control-plane/.env.example   apps/control-plane/.env    # Slack tokens (optional)
+
 bun run typecheck
 bun test
 
 bun run dev:harness         # terminal 1 — harness on :8080
-bun run dev:control-plane   # terminal 2 — Slack listener
+bun run dev:control-plane   # terminal 2 — web API on :4000 (+ Slack if configured)
 ```
 
 Or run both images together: `docker compose -f docker/compose.yaml up --build`.
