@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { AgentConfig } from "@gilly/core";
-import { createDb, getOrCreateSession } from "@gilly/db";
+import { createDb, enqueueFollowUp, getOrCreateSession } from "@gilly/db";
 import type { RuntimeProvider, StreamEvent } from "@gilly/runtime";
 import { createEngine } from "./engine.ts";
 
@@ -29,52 +29,6 @@ function fakeRuntime(result: InvocationResult, events: StreamEvent[] = []): Runt
 }
 
 const baseInput = { agentId: "echo", source: "test", sourceKey: "C1:1.0" };
-
-test("normal message replies with finalText and persists harness session", async () => {
-  const db = createDb(":memory:");
-  const runtime = fakeRuntime({
-    status: "completed",
-    finalText: "hello back",
-    harnessSessionId: "hs-1",
-    error: null,
-  });
-  const engine = createEngine({ db, runtime, agents: new Map([["echo", agent]]) });
-
-  const replies: string[] = [];
-  await engine.handle({
-    ...baseInput,
-    userMessage: "hi",
-    reply: async (t) => void replies.push(t),
-  });
-
-  expect(replies).toEqual(["hello back"]);
-  const session = getOrCreateSession(db, baseInput);
-  expect(session.harnessSessionId).toBe("hs-1");
-});
-
-test("unknown agent id replies with the unknown-agent message", async () => {
-  const db = createDb(":memory:");
-  const engine = createEngine({
-    db,
-    runtime: fakeRuntime({
-      status: "completed",
-      finalText: "x",
-      harnessSessionId: null,
-      error: null,
-    }),
-    agents: new Map([["echo", agent]]),
-  });
-
-  const replies: string[] = [];
-  await engine.handle({
-    ...baseInput,
-    agentId: "nope",
-    userMessage: "hi",
-    reply: async (t) => void replies.push(t),
-  });
-
-  expect(replies).toEqual(["Unknown agent: nope"]);
-});
 
 const collect = async (it: AsyncIterable<StreamEvent>) => {
   const out: StreamEvent[] = [];
@@ -118,4 +72,98 @@ test("stream yields an error event for an unknown agent", async () => {
 
   const got = await collect(engine.stream({ ...baseInput, agentId: "nope", userMessage: "hi" }));
   expect(got).toEqual([{ type: "error", error: "Unknown agent: nope" }]);
+});
+
+test("handle streams the primary run and persists the harness session", async () => {
+  const db = createDb(":memory:");
+  const runtime = fakeRuntime(
+    { status: "completed", finalText: "", harnessSessionId: null, error: null },
+    [{ type: "done", finalText: "hello back", harnessSessionId: "hs-1" }],
+  );
+  const engine = createEngine({ db, runtime, agents: new Map([["echo", agent]]) });
+
+  const runs: { refs: string[]; message: string; events: StreamEvent[] }[] = [];
+  await engine.handle({
+    ...baseInput,
+    userMessage: "hi",
+    ref: "ts1",
+    run: async ({ refs, message, events }) => {
+      runs.push({ refs, message, events: await collect(events) });
+    },
+  });
+
+  expect(runs).toEqual([
+    {
+      refs: ["ts1"],
+      message: "hi",
+      events: [{ type: "done", finalText: "hello back", harnessSessionId: "hs-1" }],
+    },
+  ]);
+  expect(getOrCreateSession(db, baseInput).harnessSessionId).toBe("hs-1");
+});
+
+test("handle surfaces an unknown agent as an error event", async () => {
+  const db = createDb(":memory:");
+  const engine = createEngine({
+    db,
+    runtime: fakeRuntime({
+      status: "completed",
+      finalText: "x",
+      harnessSessionId: null,
+      error: null,
+    }),
+    agents: new Map([["echo", agent]]),
+  });
+
+  let events: StreamEvent[] = [];
+  await engine.handle({
+    ...baseInput,
+    agentId: "nope",
+    userMessage: "hi",
+    run: async (ctx) => {
+      events = await collect(ctx.events);
+    },
+  });
+  expect(events).toEqual([{ type: "error", error: "Unknown agent: nope" }]);
+});
+
+test("follow-ups queued mid-run are answered as one combined batch", async () => {
+  const db = createDb(":memory:");
+  const session = getOrCreateSession(db, baseInput);
+  let call = 0;
+  const runtime: RuntimeProvider = {
+    name: "fake",
+    async invoke() {
+      return { status: "completed", finalText: "", harnessSessionId: null, error: null };
+    },
+    async *invokeStream(req) {
+      call += 1;
+      if (call === 1) {
+        // Two messages arrive while the first run is in flight.
+        enqueueFollowUp(db, session.id, "msg2", "ts2");
+        enqueueFollowUp(db, session.id, "msg3", "ts3");
+      }
+      yield { type: "done", finalText: `r:${req.userMessage}`, harnessSessionId: "h" };
+    },
+    async healthy() {
+      return true;
+    },
+  };
+
+  const engine = createEngine({ db, runtime, agents: new Map([["echo", agent]]) });
+  const runs: { refs: string[]; message: string }[] = [];
+  await engine.handle({
+    ...baseInput,
+    userMessage: "msg1",
+    ref: "ts1",
+    run: async ({ refs, message, events }) => {
+      await collect(events); // consume so the Run is recorded + the queue advances
+      runs.push({ refs, message });
+    },
+  });
+
+  expect(runs).toEqual([
+    { refs: ["ts1"], message: "msg1" },
+    { refs: ["ts2", "ts3"], message: "msg2\n\nmsg3" },
+  ]);
 });

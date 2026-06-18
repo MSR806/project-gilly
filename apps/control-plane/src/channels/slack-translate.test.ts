@@ -3,7 +3,6 @@ import {
   assistantMessageToInput,
   formatTranscript,
   mentionEventToInput,
-  withThreadContext,
 } from "./slack-translate.ts";
 
 test("assistant: sourceKey uses thread_ts, text trimmed, no mention stripping", () => {
@@ -52,11 +51,4 @@ test("formatTranscript labels authors, skips empties and the excluded ts", () =>
     "4.0",
   );
   expect(out).toBe("<@U1>: deploy is failing\nassistant: looking into it");
-});
-
-test("withThreadContext prepends transcript only when present", () => {
-  expect(withThreadContext("fix it", "")).toBe("fix it");
-  expect(withThreadContext("fix it", "<@U1>: ctx")).toBe(
-    "Thread so far:\n<@U1>: ctx\n\n---\nRequest: fix it",
-  );
 });

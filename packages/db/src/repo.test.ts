@@ -3,6 +3,7 @@ import { createDb } from "./client.ts";
 import {
   completeRun,
   createRun,
+  dequeueAllFollowUps,
   dequeueFollowUp,
   enqueueFollowUp,
   getOrCreateSession,
@@ -36,4 +37,16 @@ test("follow-ups dequeue FIFO", () => {
   expect(dequeueFollowUp(db, s.id)?.input).toBe("first");
   expect(dequeueFollowUp(db, s.id)?.input).toBe("second");
   expect(dequeueFollowUp(db, s.id)).toBeNull();
+});
+
+test("dequeueAllFollowUps drains the whole queue (FIFO) with refs and empties it", () => {
+  const db = freshDb();
+  const s = getOrCreateSession(db, seed);
+  enqueueFollowUp(db, s.id, "first", "ts1");
+  enqueueFollowUp(db, s.id, "second", "ts2");
+  expect(dequeueAllFollowUps(db, s.id)).toEqual([
+    { input: "first", ref: "ts1" },
+    { input: "second", ref: "ts2" },
+  ]);
+  expect(dequeueAllFollowUps(db, s.id)).toEqual([]);
 });

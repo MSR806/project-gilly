@@ -1,3 +1,4 @@
+import type { StreamEvent } from "@gilly/runtime";
 import { App, Assistant, LogLevel } from "@slack/bolt";
 import type { WebClient } from "@slack/web-api";
 import type { createEngine } from "../engine.ts";
@@ -9,16 +10,19 @@ import {
   mentionEventToInput,
   type SlackMessageFields,
   type ThreadMessage,
-  withThreadContext,
 } from "./slack-translate.ts";
 
-// Reaction lifecycle on the user's message.
+// Reaction lifecycle on the user's message: queued ⏳ → working 👀 → done ✅ (or ⚠️).
 const REACTION = {
-  ack: "eyes",
   queued: "hourglass_flowing_sand",
+  working: "eyes",
   done: "white_check_mark",
   error: "warning",
 };
+
+const TASK_ID = "answer";
+// Static task_card labels — no rotation; plain agents have no real phases yet.
+const STATUS = { working: "Thinking…", done: "Done", error: "Failed" };
 
 /** Add/remove a reaction; never let a reaction failure break the reply. */
 async function react(client: WebClient, channel: string, ts: string, name: string, add = true) {
@@ -30,16 +34,23 @@ async function react(client: WebClient, channel: string, ts: string, name: strin
   }
 }
 
-/** Pull prior thread messages (best-effort) when a mention lands inside a thread. */
+/**
+ * Thread messages to feed the agent (best-effort). With `since` (the ts of the
+ * agent's last processed message), returns only the delta — what happened in the
+ * thread since then — so a resumed session just gets caught up, not re-fed the lot.
+ */
 async function threadContext(
   client: WebClient,
   channel: string,
   threadTs: string,
   excludeTs: string,
+  since?: string,
 ) {
   try {
-    const res = await client.conversations.replies({ channel, ts: threadTs, limit: 20 });
-    return formatTranscript((res.messages ?? []) as ThreadMessage[], excludeTs);
+    const res = await client.conversations.replies({ channel, ts: threadTs, limit: 50 });
+    let messages = (res.messages ?? []) as ThreadMessage[];
+    if (since) messages = messages.filter((m) => m.ts && Number(m.ts) > Number(since));
+    return formatTranscript(messages, excludeTs);
   } catch (e) {
     console.warn("[slack] conversations.replies failed:", String(e));
     return "";
@@ -76,24 +87,24 @@ export function createSlackChannel(deps: {
         ],
       });
     },
-    // Assistant panel: a task_card (working → done) with the reply streamed alongside it.
+    // Assistant panel: a "Thinking…"→"Done" task_card with the reply streamed alongside it.
     userMessage: async ({ message, client, sayStream, say, setStatus }) => {
       const msg = message as SlackMessageFields;
       const input = assistantMessageToInput(msg, deps.agentId, deps.source);
       console.log(`[slack] assistant message "${input.userMessage}" (${input.sourceKey})`);
-      await react(client, msg.channel, msg.ts, REACTION.ack);
+      await react(client, msg.channel, msg.ts, REACTION.working);
 
-      const taskId = "answer";
-      const title = "Answering your request";
+      const events = deps.engine.stream(input);
+      let final = "";
+      let errored = false;
       try {
         const stream = sayStream();
         await stream.append({
-          chunks: [{ type: "task_update", id: taskId, title, status: "in_progress" }],
+          chunks: [
+            { type: "task_update", id: TASK_ID, title: STATUS.working, status: "in_progress" },
+          ],
         });
-
-        let final = "";
-        let errored = false;
-        for await (const event of deps.engine.stream(input)) {
+        for await (const event of events) {
           if (event.type === "token") {
             final += event.text;
             await stream.append({ markdown_text: event.text });
@@ -104,61 +115,156 @@ export function createSlackChannel(deps: {
         }
         await stream.append({
           chunks: [
-            { type: "task_update", id: taskId, title, status: errored ? "error" : "complete" },
+            {
+              type: "task_update",
+              id: TASK_ID,
+              title: errored ? STATUS.error : STATUS.done,
+              status: errored ? "error" : "complete",
+            },
           ],
         });
         await stream.stop();
-        await react(client, msg.channel, msg.ts, errored ? REACTION.error : REACTION.done);
-        console.log("[slack] assistant reply sent", { errored, len: final.length });
       } catch (e) {
-        // Streaming/task_card unavailable → degrade to a plain status + reply.
+        // Streaming/task_card unavailable → degrade to a plain status + Block Kit reply.
         console.warn("[slack] sayStream failed, falling back:", String(e));
         await setStatus("is thinking…");
-        await deps.engine.handle({
-          ...input,
-          reply: (text) => say({ blocks: toBlocks(text), text: fallbackText(text) }).then(() => {}),
-        });
-        await react(client, msg.channel, msg.ts, REACTION.done);
+        for await (const event of events) {
+          if (event.type === "token") final += event.text;
+          else if (event.type === "error") {
+            errored = true;
+            final += `\n\n⚠️ ${event.error}`;
+          }
+        }
+        await say({ blocks: toBlocks(final), text: fallbackText(final) });
       }
+      await react(client, msg.channel, msg.ts, errored ? REACTION.error : REACTION.done);
     },
   });
 
   app.assistant(assistant);
 
-  // Channel mentions: ack reaction, thread context, Block Kit reply, done/queued reaction.
-  app.event("app_mention", async ({ event, client }) => {
+  // Per-thread cursor: ts of the last thread message we've fed the agent.
+  const lastSeen = new Map<string, string>();
+
+  /** Swap one reaction for another on each of `refs`. */
+  const swap = async (
+    client: WebClient,
+    channel: string,
+    refs: string[],
+    from: string,
+    to: string,
+  ) => {
+    for (const ts of refs) {
+      await react(client, channel, ts, from, false);
+      await react(client, channel, ts, to);
+    }
+  };
+
+  /** Render one run in a channel thread: ⏳→👀, a task_card + streamed reply, then 👀→✅/⚠️. */
+  async function streamRunToSlack(
+    client: WebClient,
+    p: {
+      channel: string;
+      threadTs: string;
+      teamId?: string;
+      user?: string;
+      refs: string[];
+      events: AsyncIterable<StreamEvent>;
+    },
+  ) {
+    await swap(client, p.channel, p.refs, REACTION.queued, REACTION.working);
+    let final = "";
+    let errored = false;
+    try {
+      const stream = client.chatStream({
+        channel: p.channel,
+        thread_ts: p.threadTs,
+        recipient_team_id: p.teamId,
+        recipient_user_id: p.user,
+      });
+      await stream.append({
+        chunks: [
+          { type: "task_update", id: TASK_ID, title: STATUS.working, status: "in_progress" },
+        ],
+      });
+      for await (const ev of p.events) {
+        if (ev.type === "token") {
+          final += ev.text;
+          await stream.append({ markdown_text: ev.text });
+        } else if (ev.type === "error") {
+          errored = true;
+          await stream.append({ markdown_text: `\n\n⚠️ ${ev.error}` });
+        }
+      }
+      await stream.append({
+        chunks: [
+          {
+            type: "task_update",
+            id: TASK_ID,
+            title: errored ? STATUS.error : STATUS.done,
+            status: errored ? "error" : "complete",
+          },
+        ],
+      });
+      await stream.stop();
+    } catch (e) {
+      console.warn("[slack] mention stream failed, falling back to postMessage:", String(e));
+      for await (const ev of p.events) {
+        // Finish consuming so the Run is recorded even on the fallback path.
+        if (ev.type === "token") final += ev.text;
+        else if (ev.type === "error") {
+          errored = true;
+          final += `\n\n⚠️ ${ev.error}`;
+        }
+      }
+      await client.chat
+        .postMessage({
+          channel: p.channel,
+          thread_ts: p.threadTs,
+          blocks: toBlocks(final),
+          text: fallbackText(final),
+        })
+        .catch((err) => console.warn("[slack] fallback postMessage failed:", String(err)));
+    }
+    await swap(
+      client,
+      p.channel,
+      p.refs,
+      REACTION.working,
+      errored ? REACTION.error : REACTION.done,
+    );
+  }
+
+  // Channel mentions: delta thread context, task_card + streamed reply, queued ⏳ → 👀 → ✅.
+  app.event("app_mention", async ({ event, client, context }) => {
     const ev = event as SlackMessageFields;
+    const user = (event as { user?: string }).user;
     const base = mentionEventToInput(ev, deps.agentId, deps.source);
     const threadTs = ev.thread_ts ?? ev.ts;
     console.log(`[slack] mention "${base.userMessage}" (${base.sourceKey})`);
-    await react(client, ev.channel, ev.ts, REACTION.ack);
 
-    // If mentioned inside an existing thread, give the agent that conversation.
+    // Inside a thread: only what's new since our last turn (full thread on the first).
     const transcript = ev.thread_ts
-      ? await threadContext(client, ev.channel, ev.thread_ts, ev.ts)
+      ? await threadContext(client, ev.channel, ev.thread_ts, ev.ts, lastSeen.get(base.sourceKey))
       : "";
-    const userMessage = withThreadContext(base.userMessage, transcript);
 
     const { queued } = await deps.engine.handle({
       ...base,
-      userMessage,
-      reply: (text) =>
-        client.chat
-          .postMessage({
-            channel: ev.channel,
-            thread_ts: threadTs,
-            blocks: toBlocks(text),
-            text: fallbackText(text),
-          })
-          .then(() => {}),
+      context: transcript || undefined,
+      ref: ev.ts,
+      run: ({ refs, events }) =>
+        streamRunToSlack(client, {
+          channel: ev.channel,
+          threadTs,
+          teamId: context.teamId,
+          user,
+          refs,
+          events,
+        }),
     });
 
-    if (queued) {
-      await react(client, ev.channel, ev.ts, REACTION.queued);
-    } else {
-      await react(client, ev.channel, ev.ts, REACTION.ack, false);
-      await react(client, ev.channel, ev.ts, REACTION.done);
-    }
+    if (queued) await react(client, ev.channel, ev.ts, REACTION.queued);
+    else lastSeen.set(base.sourceKey, ev.ts);
     console.log("[slack] mention handled", { queued });
   });
 

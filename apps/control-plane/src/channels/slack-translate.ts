@@ -1,4 +1,4 @@
-import type { EngineInput } from "../engine.ts";
+import type { MessageInput } from "../engine.ts";
 
 /** Fields we read off a Slack message / event (assistant thread or channel mention). */
 export type SlackMessageFields = {
@@ -15,7 +15,7 @@ export function assistantMessageToInput(
   message: SlackMessageFields,
   agentId: string,
   source = "slack",
-): Omit<EngineInput, "reply"> {
+): MessageInput {
   return {
     agentId,
     source,
@@ -29,7 +29,7 @@ export function mentionEventToInput(
   event: SlackMessageFields,
   agentId: string,
   source = "slack",
-): Omit<EngineInput, "reply"> {
+): MessageInput {
   return {
     agentId,
     source,
@@ -50,10 +50,4 @@ export function formatTranscript(messages: ThreadMessage[], excludeTs?: string):
       return `${who}: ${(m.text ?? "").trim()}`;
     })
     .join("\n");
-}
-
-/** Prepend a thread transcript to the request so the agent has the conversation. */
-export function withThreadContext(userMessage: string, transcript: string): string {
-  if (!transcript) return userMessage;
-  return `Thread so far:\n${transcript}\n\n---\nRequest: ${userMessage}`;
 }

@@ -17,6 +17,11 @@ export function getOrCreateSession(
   return row;
 }
 
+/** Look up a session by id (for re-reading the latest harness session id mid-batch). */
+export function getSessionById(db: Db, id: string): Session | undefined {
+  return db.select().from(sessions).where(eq(sessions.id, id)).get();
+}
+
 /** Persist the harness session id so follow-ups resume the same loop. */
 export function setHarnessSession(db: Db, sessionId: string, harnessSessionId: string): void {
   db.update(sessions).set({ harnessSessionId }).where(eq(sessions.id, sessionId)).run();
@@ -54,10 +59,10 @@ export function failRun(db: Db, runId: string, error: string): void {
   db.update(runs).set({ status: "error", error }).where(eq(runs.id, runId)).run();
 }
 
-/** Queue a follow-up received while a run was active. */
-export function enqueueFollowUp(db: Db, sessionId: string, input: string): void {
+/** Queue a follow-up received while a run was active. `ref` is an opaque caller id. */
+export function enqueueFollowUp(db: Db, sessionId: string, input: string, ref?: string): void {
   db.insert(followUps)
-    .values({ id: crypto.randomUUID(), sessionId, input, createdAt: now() })
+    .values({ id: crypto.randomUUID(), sessionId, input, ref: ref ?? null, createdAt: now() })
     .run();
 }
 
@@ -72,4 +77,19 @@ export function dequeueFollowUp(db: Db, sessionId: string): { id: string; input:
   if (!next) return null;
   db.delete(followUps).where(eq(followUps.id, next.id)).run();
   return { id: next.id, input: next.input };
+}
+
+/** Drain *all* queued follow-ups for a session (FIFO order) and remove them. */
+export function dequeueAllFollowUps(
+  db: Db,
+  sessionId: string,
+): { input: string; ref: string | null }[] {
+  const rows = db
+    .select()
+    .from(followUps)
+    .where(eq(followUps.sessionId, sessionId))
+    .orderBy(asc(followUps.createdAt))
+    .all();
+  if (rows.length) db.delete(followUps).where(eq(followUps.sessionId, sessionId)).run();
+  return rows.map((r) => ({ input: r.input, ref: r.ref }));
 }

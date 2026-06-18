@@ -1,36 +1,43 @@
-# Gilly Slack app — paste at api.slack.com/apps → Create New App → From a manifest.
-# Uses the AI assistant surface (not plain @mentions). Socket Mode = no public URL.
-# After creating: generate an app-level token with `connections:write` (SLACK_APP_TOKEN),
-# then Install to Workspace and copy the Bot User OAuth Token (SLACK_BOT_TOKEN).
+# Gilly Slack app manifest. Paste at api.slack.com/apps → your app → App Manifest,
+# then Reinstall to Workspace (the *:history + reactions:write scopes require it).
+# Socket Mode = no public URL. App-level token needs `connections:write` (SLACK_APP_TOKEN);
+# Bot User OAuth Token = SLACK_BOT_TOKEN.
 display_information:
-  name: Gilly
+  name: gilly
+  description: Always working cloud agent
+  background_color: "#000d63"
 features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
   bot_user:
     display_name: Gilly
     always_online: true
-  app_home:
-    messages_tab_enabled: true
-    messages_tab_read_only_enabled: false
   assistant_view:
     assistant_description: A coding agent at your service.
     suggested_prompts: []
 oauth_config:
   scopes:
     bot:
-      - assistant:write # assistant.threads.* (status, prompts, title)
-      - chat:write # post replies
-      - im:history # read messages in the assistant thread
-      - app_mentions:read # receive @mentions in channels
-      - reactions:write # ack/queued/done reactions on messages
-      - channels:history # read thread context in public channels
-      - groups:history # read thread context in private channels
+      - assistant:write
+      - chat:write
+      - im:history
+      - app_mentions:read
+      - reactions:write # ack/queued/done reactions
+      - channels:history # thread context in public channels
+      - groups:history # thread context in private channels
+  pkce_enabled: false
 settings:
   event_subscriptions:
     bot_events:
-      - assistant_thread_started
-      - assistant_thread_context_changed
-      - message.im
       - app_mention
-  socket_mode_enabled: true
+      - assistant_thread_context_changed
+      - assistant_thread_started
+      - message.im
   interactivity:
-    is_enabled: false
+    is_enabled: true
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false
+  is_mcp_enabled: false

@@ -22,10 +22,12 @@ export const runs = sqliteTable("runs", {
   createdAt: integer("created_at").notNull(),
 });
 
-/** FIFO follow-up queue: inputs received while a run was active. */
+/** Follow-up queue: inputs received while a run was active, drained as one batch. */
 export const followUps = sqliteTable("follow_ups", {
   id: text("id").primaryKey(),
   sessionId: text("session_id").notNull(),
   input: text("input").notNull(),
+  /** Opaque caller ref (e.g. Slack message ts) echoed back when the batch is answered. */
+  ref: text("ref"),
   createdAt: integer("created_at").notNull(),
 });
