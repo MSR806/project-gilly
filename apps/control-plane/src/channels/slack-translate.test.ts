@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { assistantMessageToInput, mentionEventToInput } from "./slack-translate.ts";
+import {
+  assistantMessageToInput,
+  formatTranscript,
+  mentionEventToInput,
+  withThreadContext,
+} from "./slack-translate.ts";
 
 test("assistant: sourceKey uses thread_ts, text trimmed, no mention stripping", () => {
   const out = assistantMessageToInput(
@@ -34,4 +39,24 @@ test("mention: sourceKey uses thread_ts when in a thread, else ts", () => {
 test("missing text yields an empty message", () => {
   expect(assistantMessageToInput({ channel: "C1", ts: "1.0" }, "echo").userMessage).toBe("");
   expect(mentionEventToInput({ channel: "C1", ts: "1.0" }, "echo").userMessage).toBe("");
+});
+
+test("formatTranscript labels authors, skips empties and the excluded ts", () => {
+  const out = formatTranscript(
+    [
+      { user: "U1", text: "deploy is failing", ts: "1.0" },
+      { bot_id: "B1", text: "looking into it", ts: "2.0" },
+      { user: "U1", text: "  ", ts: "3.0" },
+      { user: "U2", text: "@gilly help", ts: "4.0" },
+    ],
+    "4.0",
+  );
+  expect(out).toBe("<@U1>: deploy is failing\nassistant: looking into it");
+});
+
+test("withThreadContext prepends transcript only when present", () => {
+  expect(withThreadContext("fix it", "")).toBe("fix it");
+  expect(withThreadContext("fix it", "<@U1>: ctx")).toBe(
+    "Thread so far:\n<@U1>: ctx\n\n---\nRequest: fix it",
+  );
 });

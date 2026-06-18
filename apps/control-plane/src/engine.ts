@@ -31,11 +31,12 @@ export function createEngine(deps: {
 }) {
   const { db, runtime, agents } = deps;
 
-  async function handle(input: EngineInput): Promise<void> {
+  /** Returns `{ queued: true }` when the input was queued behind an active run. */
+  async function handle(input: EngineInput): Promise<{ queued: boolean }> {
     const agent = agents.get(input.agentId);
     if (!agent) {
       await input.reply(`Unknown agent: ${input.agentId}`);
-      return;
+      return { queued: false };
     }
 
     const session = getOrCreateSession(db, {
@@ -47,7 +48,7 @@ export function createEngine(deps: {
     // One active run per session: queue follow-ups silently.
     if (hasActiveRun(db, session.id)) {
       enqueueFollowUp(db, session.id, input.userMessage);
-      return;
+      return { queued: true };
     }
 
     let message = input.userMessage;
@@ -81,6 +82,7 @@ export function createEngine(deps: {
       if (!next) break;
       message = next.input;
     }
+    return { queued: false };
   }
 
   /**

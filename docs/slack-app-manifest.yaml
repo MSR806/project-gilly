@@ -21,6 +21,9 @@ oauth_config:
       - chat:write # post replies
       - im:history # read messages in the assistant thread
       - app_mentions:read # receive @mentions in channels
+      - reactions:write # ack/queued/done reactions on messages
+      - channels:history # read thread context in public channels
+      - groups:history # read thread context in private channels
 settings:
   event_subscriptions:
     bot_events:

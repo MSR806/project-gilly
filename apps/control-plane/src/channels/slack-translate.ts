@@ -37,3 +37,23 @@ export function mentionEventToInput(
     userMessage: (event.text ?? "").replace(/<@[^>]+>/g, "").trim(),
   };
 }
+
+/** A prior message in a Slack thread (subset of conversations.replies output). */
+export type ThreadMessage = { user?: string; bot_id?: string; text?: string; ts?: string };
+
+/** Render prior thread messages as a simple transcript; skips empties and `excludeTs`. */
+export function formatTranscript(messages: ThreadMessage[], excludeTs?: string): string {
+  return messages
+    .filter((m) => m.text?.trim() && m.ts !== excludeTs)
+    .map((m) => {
+      const who = m.bot_id ? "assistant" : `<@${m.user ?? "user"}>`;
+      return `${who}: ${(m.text ?? "").trim()}`;
+    })
+    .join("\n");
+}
+
+/** Prepend a thread transcript to the request so the agent has the conversation. */
+export function withThreadContext(userMessage: string, transcript: string): string {
+  if (!transcript) return userMessage;
+  return `Thread so far:\n${transcript}\n\n---\nRequest: ${userMessage}`;
+}

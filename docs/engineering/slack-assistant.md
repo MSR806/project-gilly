@@ -11,15 +11,22 @@ Bolt's `Assistant` class lines up with `Channel` (native event → engine input 
 | Assistant handler | Gilly use |
 | --- | --- |
 | `threadStarted` | greeting + `setSuggestedPrompts(...)` |
-| `userMessage` | `message` → `assistantMessageToInput()`; then `setStatus("is thinking…")` → `engine.handle(...)` → `say(finalText)` |
+| `userMessage` | `assistantMessageToInput()` → ack reaction → `sayStream()` drives a **`task_card`** (in_progress→complete) while `engine.stream()` streams the reply → done reaction |
 
-`setStatus` auto-clears when we `say`. The conversation key is `channel:thread_ts`, which maps to a Gilly Session (so follow-ups resume the same harness session) — we don't need Slack's thread-context store for that.
+The conversation key is `channel:thread_ts`, which maps to a Gilly Session (so follow-ups resume the same harness session). If `sayStream`/`task_card` is unavailable, it degrades to `setStatus("is thinking…")` + a single `say`.
+
+## UX features
+
+- **Reactions** on the user's message (`apps/control-plane/src/channels/slack.ts`): `eyes` on receipt, `white_check_mark` on done, `warning` on error, `hourglass_flowing_sand` when a message is queued behind an active run (`engine.handle` returns `{ queued }`). Reaction failures are swallowed — never block the reply.
+- **`task_card`** (assistant panel): a single Slack `task_card` block streamed via `sayStream` — received (ack reaction) → working (`in_progress`) → done (`complete`). Per-tool step cards wait until agents have MCP/tools.
+- **Thread context** (channel mentions): when `@gilly` is mentioned inside a thread, `conversations.replies` is fetched, formatted by `formatTranscript`, and prepended to the request via `withThreadContext` — no protocol change.
+- **Rich formatting**: replies are sent as Block Kit `markdown` blocks (`toBlocks` in `slack-format.ts`) — standard Markdown, no mrkdwn conversion needed; chunked at the 12k-char block limit.
 
 ---
 
 ## Setup
 
-Create the app from [`docs/slack-app-manifest.yaml`](../slack-app-manifest.yaml). It enables the assistant view, Socket Mode, the three assistant events, and scopes `assistant:write` + `chat:write` + `im:history`. Then:
+Create the app from [`docs/slack-app-manifest.yaml`](../slack-app-manifest.yaml). It enables the assistant view, Socket Mode, the assistant events + `app_mention`, and scopes `assistant:write`, `chat:write`, `im:history`, `app_mentions:read`, `reactions:write`, `channels:history`, `groups:history`. (Adding scopes requires reinstalling the app.) Then:
 
 1. **App-Level Token** with `connections:write` → `SLACK_APP_TOKEN` (`xapp-…`).
 2. **Install to Workspace**, copy Bot User OAuth Token → `SLACK_BOT_TOKEN` (`xoxb-…`).

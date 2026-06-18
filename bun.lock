@@ -18,6 +18,8 @@
         "@gilly/db": "workspace:*",
         "@gilly/runtime": "workspace:*",
         "@slack/bolt": "latest",
+        "@slack/types": "latest",
+        "@slack/web-api": "latest",
         "zod": "latest",
       },
     },
