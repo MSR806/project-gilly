@@ -1,5 +1,9 @@
 import { InvocationRequest } from "@gilly/harness-protocol";
+import type { HarnessDriver } from "./driver.ts";
 import { runAgentLoop, streamAgentLoop } from "./loop.ts";
+
+type RunLoop = (req: InvocationRequest) => ReturnType<HarnessDriver["invoke"]>;
+type RunStream = (req: InvocationRequest) => ReturnType<HarnessDriver["invokeStream"]>;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -10,9 +14,24 @@ const json = (body: unknown, status = 200) =>
 /**
  * AgentCore HTTP contract: `GET /ping` health, `POST /invocations` to drive a loop,
  * `POST /invocations/stream` for NDJSON token streaming.
- * `runLoop`/`runStream` are injectable so tests can stub the SDK out.
+ *
+ * Accepts either a HarnessDriver or raw loop/stream functions (backward-compatible for
+ * tests that stub the SDK out directly).
  */
-export function createServer(runLoop = runAgentLoop, runStream = streamAgentLoop) {
+export function createServer(runLoopOrDriver?: RunLoop | HarnessDriver, runStream?: RunStream) {
+  let invoke: RunLoop;
+  let stream: RunStream;
+
+  if (runLoopOrDriver && "invoke" in runLoopOrDriver && "invokeStream" in runLoopOrDriver) {
+    // HarnessDriver passed
+    const driver = runLoopOrDriver;
+    invoke = (req) => driver.invoke(req);
+    stream = (req) => driver.invokeStream(req);
+  } else {
+    invoke = (runLoopOrDriver as RunLoop | undefined) ?? runAgentLoop;
+    stream = runStream ?? streamAgentLoop;
+  }
+
   return {
     async fetch(req: Request): Promise<Response> {
       const { pathname } = new URL(req.url);
@@ -30,8 +49,7 @@ export function createServer(runLoop = runAgentLoop, runStream = streamAgentLoop
         }
         const parsed = InvocationRequest.safeParse(body);
         if (!parsed.success) return json({ error: parsed.error.message }, 400);
-        // Loop errors are reported as a 200 InvocationResult with status "error".
-        return json(await runLoop(parsed.data));
+        return json(await invoke(parsed.data));
       }
 
       if (req.method === "POST" && pathname === "/invocations/stream") {
@@ -45,15 +63,17 @@ export function createServer(runLoop = runAgentLoop, runStream = streamAgentLoop
         if (!parsed.success) return json({ error: parsed.error.message }, 400);
 
         const encoder = new TextEncoder();
-        const stream = new ReadableStream<Uint8Array>({
+        const readable = new ReadableStream<Uint8Array>({
           async start(controller) {
-            for await (const event of runStream(parsed.data)) {
+            for await (const event of stream(parsed.data)) {
               controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
             }
             controller.close();
           },
         });
-        return new Response(stream, { headers: { "content-type": "application/x-ndjson" } });
+        return new Response(readable, {
+          headers: { "content-type": "application/x-ndjson" },
+        });
       }
 
       return json({ error: "not found" }, 404);

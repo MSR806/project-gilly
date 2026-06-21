@@ -12,7 +12,7 @@
 | **Connection** | One type — a Slack bot. Token supplied via `.env`, not a secrets vault. |
 | **Channel** | Slack via the **AI assistant surface** (Socket Mode, no public URL): the assistant panel maps a thread → run → reply, with a "thinking…" status. See [`engineering/slack-assistant.md`](engineering/slack-assistant.md). |
 | **Session / Run** | Gilly owns Session, Run, Workspace, follow-up queue. One active Run per Session; follow-ups FIFO-queued. Stored in **SQLite**. |
-| **Harness** | Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`), packaged as a container that speaks the **AgentCore runtime contract** (`POST /invocations`, `GET /ping` on `:8080`). |
+| **Harness** | Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) as the default driver, packaged as a container that speaks the **AgentCore runtime contract** (`POST /invocations`, `GET /ping` on `:8080`). An ACP (Agent Client Protocol) driver is available via `HARNESS_DRIVER=acp` for protocol-agnostic agent processes — this is the long-term protocol direction. |
 | **Runtime** | The harness container run **locally over HTTP** — same contract as AgentCore. `LocalRuntimeProvider` in the control plane invokes it directly. |
 
 ---
@@ -24,7 +24,7 @@
 - Web channel and the configuration/monitoring UI.
 - Real AgentCore cloud deployment (the contract is honoured now; the AWS provider comes later).
 - Secrets vault — `.env` only for the MVP.
-- Multiple harnesses / multiple runtimes.
+- Full ACP agent ecosystem tooling (the driver exists; a full ACP agent SDK/scaffold is deferred).
 
 ---
 

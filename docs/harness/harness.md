@@ -1,15 +1,20 @@
 # Project Gilly — Harness
 
-**The harness is the agent framework that drives the agent loop. Gilly's primary harness is the Claude Agent SDK.**
+**The harness is the agent framework that drives the agent loop. Gilly uses ACP (Agent Client Protocol) as the harness protocol direction, with Claude Agent SDK as the default MVP driver.**
 
 Below the control plane sit two layers, and both are pluggable:
 
-- **Harness** — the agent framework / loop. *This doc.* **Decided: Claude Agent SDK.**
+- **Harness** — the agent framework / loop. *This doc.* **Default driver: Claude Agent SDK. Protocol direction: ACP.**
 - **Runtime** — the sandbox the harness runs inside. *See `runtime.md`.*
 
-We build **one harness and one runtime** to start — Claude is the primary harness. The architecture keeps the harness swappable, but we are not building more than one yet.
+The harness app (`apps/harness-claude`) exposes the AgentCore HTTP contract (`/invocations`, `/invocations/stream`, `/ping`) and internally delegates to a **HarnessDriver**. Drivers are selected via the `HARNESS_DRIVER` env var:
 
-**Claude-first, not Claude-only.**
+| Driver | `HARNESS_DRIVER` | Description |
+| --- | --- | --- |
+| **Claude** (default) | `claude` | Claude Agent SDK loop — the proven MVP path for coding agents. |
+| **ACP** | `acp` | Spawns an ACP-compatible agent process over stdio JSON-RPC. Protocol-agnostic — any agent implementing the ACP wire format works. |
+
+**Claude-first, ACP as protocol direction, not Claude-only.**
 
 ---
 
@@ -56,3 +61,71 @@ So the architecture commits to Claude as the default harness while keeping the h
 ## Why Not the Alternatives (as the harness)
 
 The **OpenAI Agents SDK** is itself model- and provider-agnostic — through adapters like LiteLLM it can drive Claude, Gemini, or other models — which makes it a strong candidate the day we need that model flexibility. It isn't the default today only because it's less proven for the repo- and shell-heavy coding execution where the Claude SDK is strongest. **DeepAgents / LangGraph** brings orchestration and durable state that largely duplicate Gilly's control plane, adding layers an MVP doesn't need. A **custom harness from scratch** is unnecessary work. Each stays available behind the replaceable-harness boundary, but none displaces Claude as the default.
+
+---
+
+## ACP — The Protocol Direction
+
+**ACP (Agent Client Protocol)** is the protocol-level direction for Gilly's harness layer. Rather than writing one bespoke adapter per agent framework, the ACP driver communicates with any agent process that speaks ACP's stdio JSON-RPC wire format.
+
+### How ACP fits
+
+```text
+Control Plane → AgentCore HTTP → HarnessDriver → ACP stdio JSON-RPC → agent process
+```
+
+The AgentCore HTTP wrapper (`/invocations`, `/ping`, `/invocations/stream`) stays as the runtime ingress — unchanged. Inside the harness app, the `HarnessDriver` interface dispatches to either the Claude SDK or an ACP-compatible subprocess.
+
+### ACP wire format (stdio JSON-RPC)
+
+The ACP driver follows the standard ACP session flow. All messages are newline-delimited JSON-RPC 2.0 on stdin/stdout:
+
+**1. Initialize** — handshake with protocol version and capabilities:
+
+```json
+→ { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": 1, "clientCapabilities": {}, "clientInfo": { "name": "gilly-harness", "version": "1.0.0" } } }
+← { "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": 1, "agentCapabilities": { "sessionCapabilities": { "resume": true } } } }
+```
+
+**2. Session** — create or restore a session:
+
+```json
+→ { "jsonrpc": "2.0", "id": 2, "method": "session/new", "params": { "cwd": "/workspace", "mcpServers": [] } }
+← { "jsonrpc": "2.0", "id": 2, "result": { "sessionId": "sess-123" } }
+```
+
+Or resume an existing session (if `agentCapabilities.sessionCapabilities.resume`):
+
+```json
+→ { "jsonrpc": "2.0", "id": 2, "method": "session/resume", "params": { "sessionId": "sess-123", "cwd": "/workspace", "mcpServers": [] } }
+```
+
+Or load a session (if `agentCapabilities.loadSession`):
+
+```json
+→ { "jsonrpc": "2.0", "id": 2, "method": "session/load", "params": { "sessionId": "sess-123", "cwd": "/workspace", "mcpServers": [] } }
+```
+
+**3. Prompt** — send the user message and stream updates:
+
+```json
+→ { "jsonrpc": "2.0", "id": 3, "method": "session/prompt", "params": { "sessionId": "sess-123", "prompt": [{ "type": "text", "text": "hello world" }] } }
+← { "jsonrpc": "2.0", "method": "session/update", "params": { "sessionId": "sess-123", "update": { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "partial" } } } }
+← { "jsonrpc": "2.0", "method": "session/update", "params": { "sessionId": "sess-123", "update": { "sessionUpdate": "tool_call", "title": "Read", "kind": "file", "status": "running" } } }
+← { "jsonrpc": "2.0", "id": 3, "result": { "stopReason": "end_turn" } }
+```
+
+### Configuration
+
+```bash
+HARNESS_DRIVER=acp    # select the ACP driver
+ACP_COMMAND=my-agent  # the command to spawn
+ACP_ARGS=--verbose    # optional space-separated args
+```
+
+### What ACP does NOT cover in the MVP
+
+- No MCP tool registry or dynamic tool negotiation.
+- No permission prompts or interactive UI approval.
+- Session resume is passed as `sessionId` — it's up to the agent process to persist/restore state.
+- Cancellation is process-level (kill the subprocess).
