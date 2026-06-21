@@ -69,6 +69,8 @@ export function createEngine(deps: {
         agent,
         userMessage: message,
         resumeSessionId: getSessionById(db, sessionId)?.harnessSessionId ?? undefined,
+        // Stable per-Gilly-session workspace, so follow-ups see files earlier runs made.
+        workspace: { provider: "local", handle: sessionId },
       });
       for await (const event of events) {
         if (event.type === "token") {
@@ -76,9 +78,10 @@ export function createEngine(deps: {
         } else if (event.type === "done") {
           if (event.harnessSessionId) setHarnessSession(db, sessionId, event.harnessSessionId);
           completeRun(db, runId, event.finalText || accumulated);
-        } else {
+        } else if (event.type === "error") {
           failRun(db, runId, event.error);
         }
+        // `tool` events are progress only — passed through to the channel, not persisted.
         yield event;
       }
     } catch (e) {

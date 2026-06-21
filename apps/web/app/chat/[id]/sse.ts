@@ -1,5 +1,6 @@
 export type StreamEvent =
   | { type: "token"; text: string }
+  | { type: "tool"; name: string; summary: string }
   | { type: "done"; finalText: string; harnessSessionId: string | null }
   | { type: "error"; error: string };
 

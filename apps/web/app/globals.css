@@ -157,6 +157,16 @@ body {
   border: 1px solid var(--border);
 }
 
+/* Inline tool-call marker between text segments (text → tools → text). */
+.bubble__tool {
+  display: block;
+  margin: 6px 0;
+  padding: 4px 8px;
+  border-left: 2px solid var(--accent);
+  font-size: 13px;
+  opacity: 0.85;
+}
+
 .chat__input {
   display: flex;
   gap: 8px;

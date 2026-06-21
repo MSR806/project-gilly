@@ -27,3 +27,15 @@ test("invokeStream parses NDJSON StreamEvents from the harness", async () => {
 
   expect(got).toEqual(lines);
 });
+
+test("surfaces a meaningful error when the harness is unreachable", async () => {
+  // Nothing is listening on port 1 — fetch rejects with a connection error.
+  const provider = new LocalRuntimeProvider("http://localhost:1");
+  const drain = async () => {
+    for await (const _ of provider.invokeStream(req)) {
+      /* connect fails before any event */
+    }
+  };
+  await expect(drain()).rejects.toThrow(/agent runtime is unavailable/i);
+  await expect(provider.invoke(req)).rejects.toThrow(/agent runtime is unavailable/i);
+});

@@ -7,9 +7,12 @@ import { parseSseStream } from "./sse";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
 
+/** Ordered pieces of one message: text segments and tool calls, in arrival order. */
+type Part = { kind: "text"; text: string } | { kind: "tool"; name: string; summary: string };
+
 type Message = {
   role: "user" | "assistant";
-  text: string;
+  parts: Part[];
 };
 
 export default function ChatPage() {
@@ -36,18 +39,32 @@ export default function ChatPage() {
     setStreaming(true);
     setMessages((prev) => [
       ...prev,
-      { role: "user", text: message },
-      { role: "assistant", text: "" },
+      { role: "user", parts: [{ kind: "text", text: message }] },
+      { role: "assistant", parts: [] },
     ]);
 
-    const appendToAssistant = (delta: string) => {
+    // Update the in-flight assistant message (always the last one) by transforming its parts.
+    const updateAssistant = (fn: (parts: Part[]) => Part[]) => {
       setMessages((prev) => {
         const next = [...prev];
         const last = next[next.length - 1];
-        next[next.length - 1] = { ...last, text: last.text + delta };
+        next[next.length - 1] = { ...last, parts: fn(last.parts) };
         return next;
       });
     };
+
+    // Append a text delta to the trailing text part, or start a new one (after a tool call).
+    const appendText = (delta: string) =>
+      updateAssistant((parts) => {
+        const last = parts[parts.length - 1];
+        if (last?.kind === "text") {
+          return [...parts.slice(0, -1), { kind: "text", text: last.text + delta }];
+        }
+        return [...parts, { kind: "text", text: delta }];
+      });
+
+    const appendTool = (name: string, summary: string) =>
+      updateAssistant((parts) => [...parts, { kind: "tool", name, summary }]);
 
     try {
       const res = await fetch(`${API_BASE}/chat`, {
@@ -69,14 +86,15 @@ export default function ChatPage() {
 
       for await (const event of parseSseStream(res.body)) {
         if (event.type === "token") {
-          appendToAssistant(event.text);
+          appendText(event.text);
+        } else if (event.type === "tool") {
+          appendTool(event.name, event.summary);
         } else if (event.type === "done") {
+          // Fallback only: if nothing streamed (non-streaming path), show the final text.
           if (event.finalText) {
-            setMessages((prev) => {
-              const next = [...prev];
-              next[next.length - 1] = { role: "assistant", text: event.finalText };
-              return next;
-            });
+            updateAssistant((parts) =>
+              parts.length ? parts : [{ kind: "text", text: event.finalText }],
+            );
           }
         } else if (event.type === "error") {
           setError(event.error);
@@ -104,11 +122,28 @@ export default function ChatPage() {
         {messages.length === 0 ? (
           <p className="state">Send a message to start chatting.</p>
         ) : (
-          messages.map((m, i) => (
-            <div key={i} className={`bubble bubble--${m.role}`}>
-              {m.text || (streaming && i === messages.length - 1 ? "…" : "")}
-            </div>
-          ))
+          messages.map((m, i) => {
+            const isLast = i === messages.length - 1;
+            const empty = m.parts.length === 0;
+            return (
+              <div key={i} className={`bubble bubble--${m.role}`}>
+                {empty
+                  ? streaming && isLast
+                    ? "…"
+                    : ""
+                  : m.parts.map((part, j) =>
+                      part.kind === "text" ? (
+                        <span key={j}>{part.text}</span>
+                      ) : (
+                        <span key={j} className="bubble__tool">
+                          🔧 <code>{part.name}</code>
+                          {part.summary ? ` — ${part.summary}` : ""}
+                        </span>
+                      ),
+                    )}
+              </div>
+            );
+          })
         )}
       </div>
 

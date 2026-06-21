@@ -28,9 +28,16 @@ export type InvocationResult = z.infer<typeof InvocationResult>;
 export const PingResult = z.object({ status: z.literal("Healthy") });
 export type PingResult = z.infer<typeof PingResult>;
 
-/** A streamed invocation: incremental `token`s, then a terminal `done` or `error`. */
+/** A streamed invocation: incremental `token`s and `tool` calls, then a terminal `done` or `error`. */
 export const StreamEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("token"), text: z.string() }),
+  z.object({
+    type: z.literal("tool"),
+    /** Tool name, e.g. "Bash", "Read", "Edit". */
+    name: z.string(),
+    /** Short human-readable summary of the call's input (path, command, …); may be empty. */
+    summary: z.string(),
+  }),
   z.object({
     type: z.literal("done"),
     finalText: z.string(),

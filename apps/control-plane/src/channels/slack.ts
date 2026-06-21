@@ -20,9 +20,41 @@ const REACTION = {
   error: "warning",
 };
 
-const TASK_ID = "answer";
-// Static task_card labels — no rotation; plain agents have no real phases yet.
-const STATUS = { working: "Thinking…", done: "Done", error: "Failed" };
+// A single status card at the top: "Working…" while the run is live, then "Done"/"Failed".
+const STATUS = { working: "Working…", done: "Done", error: "Failed" };
+const STATUS_TASK_ID = "status";
+
+/** A Slack streaming message handle (from `client.chatStream(...)` or `sayStream()`). */
+type SlackStream = ReturnType<WebClient["chatStream"]>;
+
+/**
+ * Consume one run's events into a Slack streaming message: a single "Working…"→"Done" status
+ * card at the top, with all assistant text (intermediate reasoning + final answer) streamed
+ * into the body. Tool calls are not surfaced. Returns the assistant text + error flag.
+ */
+async function pumpRunToStream(
+  stream: SlackStream,
+  events: AsyncIterable<StreamEvent>,
+): Promise<{ final: string; errored: boolean }> {
+  let final = "";
+  let errored = false;
+  const setStatus = (title: string, status: "in_progress" | "complete" | "error") =>
+    stream.append({ chunks: [{ type: "task_update", id: STATUS_TASK_ID, title, status }] });
+
+  await setStatus(STATUS.working, "in_progress");
+  for await (const ev of events) {
+    if (ev.type === "token") {
+      final += ev.text;
+      await stream.append({ markdown_text: ev.text });
+    } else if (ev.type === "error") {
+      errored = true;
+      await stream.append({ markdown_text: `\n\n⚠️ ${ev.error}` });
+    }
+    // `tool` events are intentionally ignored — progress shows as streamed assistant text.
+  }
+  await setStatus(errored ? STATUS.error : STATUS.done, errored ? "error" : "complete");
+  return { final, errored };
+}
 
 /** Add/remove a reaction; never let a reaction failure break the reply. */
 async function react(client: WebClient, channel: string, ts: string, name: string, add = true) {
@@ -87,7 +119,7 @@ export function createSlackChannel(deps: {
         ],
       });
     },
-    // Assistant panel: a "Thinking…"→"Done" task_card with the reply streamed alongside it.
+    // Assistant panel: a "Working…"→"Done" status card with the reply streamed alongside it.
     userMessage: async ({ message, client, sayStream, say, setStatus }) => {
       const msg = message as SlackMessageFields;
       const input = assistantMessageToInput(msg, deps.agentId, deps.source);
@@ -99,30 +131,7 @@ export function createSlackChannel(deps: {
       let errored = false;
       try {
         const stream = sayStream();
-        await stream.append({
-          chunks: [
-            { type: "task_update", id: TASK_ID, title: STATUS.working, status: "in_progress" },
-          ],
-        });
-        for await (const event of events) {
-          if (event.type === "token") {
-            final += event.text;
-            await stream.append({ markdown_text: event.text });
-          } else if (event.type === "error") {
-            errored = true;
-            await stream.append({ markdown_text: `\n\n⚠️ ${event.error}` });
-          }
-        }
-        await stream.append({
-          chunks: [
-            {
-              type: "task_update",
-              id: TASK_ID,
-              title: errored ? STATUS.error : STATUS.done,
-              status: errored ? "error" : "complete",
-            },
-          ],
-        });
+        ({ final, errored } = await pumpRunToStream(stream, events));
         await stream.stop();
       } catch (e) {
         // Streaming/task_card unavailable → degrade to a plain status + Block Kit reply.
@@ -160,7 +169,7 @@ export function createSlackChannel(deps: {
     }
   };
 
-  /** Render one run in a channel thread: ⏳→👀, a task_card + streamed reply, then 👀→✅/⚠️. */
+  /** Render one run in a channel thread: ⏳→👀, a status card + streamed reply, then 👀→✅/⚠️. */
   async function streamRunToSlack(
     client: WebClient,
     p: {
@@ -182,30 +191,7 @@ export function createSlackChannel(deps: {
         recipient_team_id: p.teamId,
         recipient_user_id: p.user,
       });
-      await stream.append({
-        chunks: [
-          { type: "task_update", id: TASK_ID, title: STATUS.working, status: "in_progress" },
-        ],
-      });
-      for await (const ev of p.events) {
-        if (ev.type === "token") {
-          final += ev.text;
-          await stream.append({ markdown_text: ev.text });
-        } else if (ev.type === "error") {
-          errored = true;
-          await stream.append({ markdown_text: `\n\n⚠️ ${ev.error}` });
-        }
-      }
-      await stream.append({
-        chunks: [
-          {
-            type: "task_update",
-            id: TASK_ID,
-            title: errored ? STATUS.error : STATUS.done,
-            status: errored ? "error" : "complete",
-          },
-        ],
-      });
+      ({ final, errored } = await pumpRunToStream(stream, p.events));
       await stream.stop();
     } catch (e) {
       console.warn("[slack] mention stream failed, falling back to postMessage:", String(e));
