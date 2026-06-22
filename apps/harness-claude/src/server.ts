@@ -1,4 +1,5 @@
 import { InvocationRequest } from "@gilly/harness-protocol";
+import type { HarnessDriver } from "./driver.ts";
 import { runAgentLoop, streamAgentLoop } from "./loop.ts";
 
 const json = (body: unknown, status = 200) =>
@@ -10,7 +11,9 @@ const json = (body: unknown, status = 200) =>
 /**
  * AgentCore HTTP contract: `GET /ping` health, `POST /invocations` to drive a loop,
  * `POST /invocations/stream` for NDJSON token streaming.
- * `runLoop`/`runStream` are injectable so tests can stub the SDK out.
+ *
+ * Accepts either a `HarnessDriver` or the legacy `runLoop`/`runStream` functions.
+ * The HTTP contract is unchanged regardless of which driver backs the server.
  */
 export function createServer(runLoop = runAgentLoop, runStream = streamAgentLoop) {
   return {
@@ -59,4 +62,12 @@ export function createServer(runLoop = runAgentLoop, runStream = streamAgentLoop
       return json({ error: "not found" }, 404);
     },
   };
+}
+
+/** Creates a server backed by a HarnessDriver instance. */
+export function createServerFromDriver(driver: HarnessDriver) {
+  return createServer(
+    (req) => driver.invoke(req),
+    (req) => driver.invokeStream(req),
+  );
 }

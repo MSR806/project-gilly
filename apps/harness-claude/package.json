@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^0.28.1",
     "@anthropic-ai/claude-agent-sdk": "latest",
     "@gilly/core": "workspace:*",
     "@gilly/harness-protocol": "workspace:*",
