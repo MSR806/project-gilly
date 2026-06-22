@@ -11,6 +11,7 @@
   "dependencies": {
     "@gilly/core": "workspace:*",
     "@gilly/db": "workspace:*",
+    "@gilly/harness-protocol": "workspace:*",
     "@gilly/runtime": "workspace:*",
     "@slack/bolt": "latest",
     "@slack/types": "latest",

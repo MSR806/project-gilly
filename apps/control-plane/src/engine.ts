@@ -11,6 +11,7 @@ import {
   hasActiveRun,
   setHarnessSession,
 } from "@gilly/db";
+import type { SkillBundle } from "@gilly/harness-protocol";
 import type { RuntimeProvider, StreamEvent } from "@gilly/runtime";
 
 /** One run handed to a conversational channel: the messages it answers, the raw prompt, the stream. */
@@ -53,8 +54,20 @@ export function createEngine(deps: {
   db: Db;
   runtime: RuntimeProvider;
   agents: Map<string, AgentConfig>;
+  /** Skill bundles by name, for resolving an agent's attached skills; defaults to none. */
+  skills?: Map<string, SkillBundle>;
 }) {
   const { db, runtime, agents } = deps;
+  const skills = deps.skills ?? new Map<string, SkillBundle>();
+
+  /** Gather the skill bundles an agent attaches. Throws on an unknown name (caught by runFrom). */
+  function skillsFor(agent: AgentConfig): SkillBundle[] {
+    return (agent.skills ?? []).map((name) => {
+      const bundle = skills.get(name);
+      if (!bundle) throw new Error(`Agent "${agent.id}" references unknown skill "${name}"`);
+      return bundle;
+    });
+  }
 
   /** Stream one already-created run: invoke the harness, persist results, re-yield events. */
   async function* runFrom(
@@ -65,12 +78,16 @@ export function createEngine(deps: {
   ): AsyncGenerator<StreamEvent> {
     let accumulated = "";
     try {
+      // Resolve instructions (skills) before invoking. May throw on a misconfigured agent
+      // (unknown skill name) — caught below and recorded as a failed run.
+      const skillBundles = skillsFor(agent);
       const events = runtime.invokeStream({
         agent,
         userMessage: message,
         resumeSessionId: getSessionById(db, sessionId)?.harnessSessionId ?? undefined,
         // Stable per-Gilly-session workspace, so follow-ups see files earlier runs made.
         workspace: { provider: "local", handle: sessionId },
+        ...(skillBundles.length ? { skills: skillBundles } : {}),
       });
       for await (const event of events) {
         if (event.type === "token") {

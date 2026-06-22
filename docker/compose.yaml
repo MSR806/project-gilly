@@ -1,12 +1,14 @@
-# Local two-image setup. control-plane → harness over the Docker network,
-# exercising the LocalRuntimeProvider against the AgentCore container contract.
+# One-command local stack: harness + control-plane + web.
+# Each service loads its own app .env via env_file; compose only overrides the
+# handful of values that must differ inside the Docker network (service
+# hostnames, container paths). Paths here are relative to this file (docker/).
 services:
   harness:
     build:
       context: ..
       dockerfile: docker/Dockerfile.harness
-    environment:
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    env_file:
+      - ../apps/harness-claude/.env   # ANTHROPIC_API_KEY (and optional PORT)
     ports:
       - "8080:8080"
 
@@ -16,15 +18,35 @@ services:
       dockerfile: docker/Dockerfile.control-plane
     depends_on:
       - harness
+    env_file:
+      - ../apps/control-plane/.env    # Slack tokens, WEB_PORT, GILLY_AGENT_ID, ...
     environment:
-      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
-      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+      # Override .env values that only make sense on the host, not in-network.
+      # (environment wins over env_file.)
       HARNESS_URL: http://harness:8080
       AGENTS_DIR: /app/config/agents
+      SKILLS_DIR: /app/config/skills
       DATABASE_PATH: /data/gilly.db
     volumes:
-      - ../config/agents:/app/config/agents:ro
-      - gilly-data:/data
+      - ../config:/app/config:ro      # agent + skill JSON, read-only
+      - gilly-data:/data              # SQLite store persists across runs
+    ports:
+      - "4000:4000"                   # WEB_PORT — keep in sync with apps/control-plane/.env
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    depends_on:
+      - control-plane
+    env_file:
+      - path: ../apps/web/.env        # optional today — web has no required env
+        required: false
+    environment:
+      # Next.js rewrites /api/* to the control-plane over the Docker network.
+      API_URL: http://control-plane:4000
+    ports:
+      - "3000:3000"
 
 volumes:
   gilly-data:

@@ -33,4 +33,18 @@ bun run dev:harness         # terminal 1 — harness on :8080
 bun run dev:control-plane   # terminal 2 — web API on :4000 (+ Slack if configured)
 ```
 
-Or run both images together: `docker compose -f docker/compose.yaml up --build`.
+## Docker (one command)
+
+Run the whole stack — harness, control-plane, and web — with one command instead
+of three terminals. Each service reads its **own** `apps/<app>/.env`; compose only
+overrides the in-network bits (service hostnames, container paths):
+
+```bash
+cp apps/harness-claude/.env.example apps/harness-claude/.env  # set ANTHROPIC_API_KEY
+# apps/control-plane/.env holds Slack tokens, WEB_PORT, etc. (optional)
+
+docker compose -f docker/compose.yaml up --build
+```
+
+Then open the UI at http://localhost:3000 (web → control-plane `:4000` → harness `:8080`).
+`WEB_PORT` in `apps/control-plane/.env` must stay `4000` to match the published port.

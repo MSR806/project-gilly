@@ -2,7 +2,7 @@
 
 **A Session is Gilly's durable work context.** It is created by the control plane when work begins, reused for follow-ups, and tracked until the work is complete or abandoned. The runtime provider may also have its own session concept, but that is an implementation detail below Gilly's Session.
 
-Sessions are not authored building blocks like agents, skills, MCPs, channels, or triggers. They are operational records created by the system so Gilly can answer what is running, what happened, what state exists, and where a follow-up should go.
+Sessions are not authored building blocks like agents, skills, channels, or triggers. They are operational records created by the system so Gilly can answer what is running, what happened, what state exists, and where a follow-up should go.
 
 ---
 
@@ -86,7 +86,7 @@ Gilly persists operational state. The runtime provider persists sandbox state wh
 | Session identity and source mapping | Gilly database |
 | Run status, history, result, errors, artifacts | Gilly database |
 | Follow-up queue | Gilly database |
-| Agent, skill, MCP, channel, trigger configuration | Gilly database |
+| Agent, skill, channel, trigger configuration | Gilly database |
 | Filesystem/workspace state | AgentCore managed session storage |
 | Harness conversation state | Harness-specific storage, such as Claude SDK session persistence or AgentCore Memory |
 | Long-term external outputs | The target system, such as a PR, issue, Slack thread, report, or artifact store |

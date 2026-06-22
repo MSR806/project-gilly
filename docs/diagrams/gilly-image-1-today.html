@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gilly Diagram 1 - Today</title>
+    <style>
+      :root {
+        --ink: #171717;
+        --muted: #5f5f5f;
+        --paper: #f8f7f2;
+        --panel: #fffdf7;
+        --line: #1d1d1d;
+        --yellow: #ffe064;
+        --yellow-soft: #fff3b2;
+        --blue: #d8ebff;
+        --green: #ddf2df;
+        --orange: #ffe0ba;
+        --red: #ffe1df;
+        --gray: #efefef;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #111;
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      .poster {
+        width: 1800px;
+        height: 1000px;
+        padding: 46px;
+        background: var(--paper);
+      }
+
+      .canvas {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        border: 3px solid var(--line);
+        border-radius: 30px;
+        background: var(--panel);
+        overflow: hidden;
+        padding: 46px 52px;
+      }
+
+      .canvas::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        opacity: 0.2;
+        pointer-events: none;
+        background-image:
+          linear-gradient(90deg, rgba(0, 0, 0, 0.045) 1px, transparent 1px),
+          linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+        background-size: 28px 28px;
+      }
+
+      .content {
+        position: relative;
+        z-index: 1;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 40px;
+      }
+
+      h1 {
+        margin: 0;
+        max-width: 1160px;
+        font-size: 58px;
+        line-height: 1.02;
+        letter-spacing: 0;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding-top: 10px;
+        font-size: 30px;
+        font-weight: 850;
+      }
+
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 52px;
+        height: 52px;
+        border: 3px solid var(--line);
+        border-radius: 14px;
+        background: var(--yellow);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 28px;
+        font-weight: 900;
+      }
+
+      .subtitle {
+        margin: 14px 0 42px;
+        color: var(--muted);
+        font-size: 27px;
+        line-height: 1.3;
+      }
+
+      .stacks {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 28px;
+      }
+
+      .stack {
+        border: 3px solid var(--line);
+        border-radius: 22px;
+        background: #fff;
+        padding: 26px;
+        min-height: 470px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        box-shadow: 12px 12px 0 #111;
+      }
+
+      .stack h2 {
+        margin: 0;
+        font-size: 32px;
+        line-height: 1.05;
+        letter-spacing: 0;
+      }
+
+      .box {
+        border: 2.5px solid var(--line);
+        border-radius: 16px;
+        padding: 18px;
+      }
+
+      .channels {
+        background: var(--blue);
+      }
+
+      .glue {
+        background:
+          repeating-linear-gradient(
+            -45deg,
+            rgba(255, 224, 100, 0.55) 0 8px,
+            transparent 8px 16px
+          ),
+          var(--yellow-soft);
+        flex: 1;
+      }
+
+      .sandbox {
+        background: var(--orange);
+      }
+
+      .box-title {
+        display: block;
+        margin-bottom: 13px;
+        font-size: 22px;
+        font-weight: 950;
+      }
+
+      .harness-name {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        margin-bottom: 12px;
+        border: 2px solid var(--line);
+        border-radius: 999px;
+        background: var(--green);
+        padding: 8px 14px;
+        font-size: 17px;
+        font-weight: 900;
+      }
+
+      .pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px;
+      }
+
+      .pill {
+        border: 2px solid var(--line);
+        border-radius: 999px;
+        background: #fff;
+        padding: 8px 12px;
+        font-size: 17px;
+        font-weight: 850;
+      }
+
+    </style>
+  </head>
+  <body>
+    <main class="poster" aria-label="Today every harness rebuilds the platform layer">
+      <section class="canvas">
+        <div class="content">
+          <header>
+            <h1>Today, every harness becomes its own platform.</h1>
+            <div class="brand" aria-label="Gilly">
+              <div class="brand-mark">G</div>
+              <span>Gilly</span>
+            </div>
+          </header>
+
+          <p class="subtitle">
+            The harness changes. The same channel, agent, skill, tool, and auth glue gets rebuilt again.
+          </p>
+
+          <section class="stacks" aria-label="Duplicated platform stacks">
+            <article class="stack">
+              <h2>Slack agent stack</h2>
+              <div class="box channels">
+                <span class="box-title">Channels</span>
+                <div class="pills">
+                  <span class="pill">Slack</span>
+                </div>
+              </div>
+              <div class="box glue">
+                <span class="harness-name">Claude Code</span>
+                <span class="box-title">Harness glue</span>
+                <div class="pills">
+                  <span class="pill">Agents</span>
+                  <span class="pill">Skills</span>
+                  <span class="pill">Tools / MCPs</span>
+                  <span class="pill">Sessions</span>
+                  <span class="pill">Auth</span>
+                  <span class="pill">Logs</span>
+                </div>
+              </div>
+              <div class="box sandbox">
+                <span class="box-title">Sandbox</span>
+                <div class="pills">
+                  <span class="pill">Modal</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="stack">
+              <h2>Web agent stack</h2>
+              <div class="box channels">
+                <span class="box-title">Channels</span>
+                <div class="pills">
+                  <span class="pill">Web chat</span>
+                </div>
+              </div>
+              <div class="box glue">
+                <span class="harness-name">Codex</span>
+                <span class="box-title">Harness glue</span>
+                <div class="pills">
+                  <span class="pill">Agents</span>
+                  <span class="pill">Subagents</span>
+                  <span class="pill">Skills</span>
+                  <span class="pill">Tools / MCPs</span>
+                  <span class="pill">Permissions</span>
+                  <span class="pill">Logs</span>
+                </div>
+              </div>
+              <div class="box sandbox">
+                <span class="box-title">Sandbox</span>
+                <div class="pills">
+                  <span class="pill">E2B</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="stack">
+              <h2>Discord agent stack</h2>
+              <div class="box channels">
+                <span class="box-title">Channels</span>
+                <div class="pills">
+                  <span class="pill">Discord</span>
+                </div>
+              </div>
+              <div class="box glue">
+                <span class="harness-name">LangGraph</span>
+                <span class="box-title">Harness glue</span>
+                <div class="pills">
+                  <span class="pill">Agents</span>
+                  <span class="pill">Skills</span>
+                  <span class="pill">Tools / MCPs</span>
+                  <span class="pill">Crons</span>
+                  <span class="pill">Triggers</span>
+                  <span class="pill">Observability</span>
+                </div>
+              </div>
+              <div class="box sandbox">
+                <span class="box-title">Sandbox</span>
+                <div class="pills">
+                  <span class="pill">Cloudflare</span>
+                </div>
+              </div>
+            </article>
+          </section>
+
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

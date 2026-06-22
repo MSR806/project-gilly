@@ -8,4 +8,4 @@ A skill is a folder with a main `SKILL.md` plus any number of supporting files �
 
 For a long skill, `SKILL.md` acts as an index — core instructions plus pointers to the other files. The harness reads `SKILL.md` first and pulls the referenced files in only when the agent actually needs them (progressive disclosure), so context stays small even when the skill carries a lot of material.
 
-Skills are instructions, not access. What an agent is *allowed to touch* comes from its MCPs/tools ([`mcp-registry.md`](mcp-registry.md)) — a skill describes how to do something, not permission to do it.
+Skills are instructions, not access. What an agent is *allowed to touch* comes from its tools — a skill describes how to do something, not permission to do it.

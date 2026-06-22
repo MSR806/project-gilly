@@ -2,9 +2,6 @@
 
 Loose ends and unresolved tensions to revisit. Not blockers — parking lot for things we've flagged but deliberately deferred.
 
-## Connection vs MCP Registry overlap
-The honest flag from the design pass. [`connection.md`](connection.md) (identity + secrets for external systems like GitHub/Jira/Confluence) and the [`mcp-registry.md`](mcp-registry.md) (MCP servers an agent can call) overlap at the edges — the *same* external system could be modeled either way. e.g. GitHub is a Connection (backing a trigger) but could also be an MCP the agent calls to make commits; Jira/Confluence likewise. Need to reconcile: is an MCP a *kind* of connection? Does an MCP reuse a connection's credentials? Today they're separate concepts with no defined relationship.
-
 ## Session lifecycle edge cases
 The high-level lifecycle now lives in [`session-lifecycle.md`](session-lifecycle.md): Gilly owns Sessions, Runs, Follow-ups, and Workspaces; AgentCore is only the first runtime provider. Remaining details to define later: cancellation behavior, human approval pauses, how much run-event detail is stored, and whether live Web/voice channels can interrupt instead of queueing.
 

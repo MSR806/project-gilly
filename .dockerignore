@@ -1,0 +1,14 @@
+# Keep host artifacts out of the build context — node_modules are macOS-built
+# and would clobber the Linux install; .next/.git/data just bloat the image.
+**/node_modules
+**/.next
+**/dist
+.git
+data
+*.db
+*.db-shm
+*.db-wal
+*.log
+# Secrets are injected at runtime via env_file, never baked into images.
+**/.env
+**/.env.local

@@ -18,7 +18,7 @@ We build **one harness and one runtime** to start — Claude is the primary harn
 ```text
 Control Plane (Gilly)   →  what runs, when, with what access, where results go     [custom server]
    Harness              →  the agent loop — reasoning, tool calls, file edits,
-                            MCP, skills, subagents, structured result               [Claude Agent SDK]
+                            skills, subagents, structured result                    [Claude Agent SDK]
    Runtime              →  the sandbox the harness runs inside — FS, shell,
                             network, lifecycle                                       [the runtime]
 ```
@@ -29,7 +29,7 @@ The harness runs **inside** the runtime. The control plane picks a harness + run
 
 ## What a Harness Does
 
-Given a task and a workspace, the harness drives the loop to a result: it reasons and plans, calls tools and MCP servers, reads and edits files, runs shell commands, uses skills, delegates to subagents, works through a test/debug loop, and returns a structured result.
+Given a task and a workspace, the harness drives the loop to a result: it reasons and plans, calls tools, reads and edits files, runs shell commands, uses skills, delegates to subagents, works through a test/debug loop, and returns a structured result.
 
 It does **not** provision its own sandbox, hold long-lived credentials, or decide where results go — those belong to the runtime and the control plane, which stays the source of truth for what may run and with what access.
 
@@ -37,9 +37,9 @@ It does **not** provision its own sandbox, hold long-lived credentials, or decid
 
 ## Why Claude Is the Primary Harness
 
-Because Gilly owns the platform layer and the runtime owns the box, the harness only has to be excellent at one thing: driving real work to completion inside a sandbox. The Claude Agent SDK is the strongest harness for exactly that, and especially for **coding work** — reading and editing files, running shell commands, understanding a repository, calling MCP tools, delegating to subagents, and looping until tests pass.
+Because Gilly owns the platform layer and the runtime owns the box, the harness only has to be excellent at one thing: driving real work to completion inside a sandbox. The Claude Agent SDK is the strongest harness for exactly that, and especially for **coding work** — reading and editing files, running shell commands, understanding a repository, delegating to subagents, and looping until tests pass.
 
-That coding strength is the core of Gilly's highest-value cases — PR review, repo audits, package upgrades, test investigation, Fleet — and it carries over to non-coding agents (analytics, support, incident summaries) when tools and MCPs are scoped right. For an MVP whose first wins are engineering-heavy, the Claude SDK is the obvious default.
+That coding strength is the core of Gilly's highest-value cases — PR review, repo audits, package upgrades, test investigation, Fleet — and it carries over to non-coding agents (analytics, support, incident summaries) when tools are scoped right. For an MVP whose first wins are engineering-heavy, the Claude SDK is the obvious default.
 
 ---
 

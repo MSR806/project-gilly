@@ -9,6 +9,21 @@ test("InvocationRequest round-trips a minimal payload", () => {
   expect(InvocationRequest.parse(req)).toMatchObject(req);
 });
 
+test("InvocationRequest carries inline skills", () => {
+  const req = {
+    agent: {
+      id: "release-bot",
+      name: "Release Bot",
+      model: "sonnet",
+      systemPrompt: "ship it",
+      skills: ["cut-release"],
+    },
+    userMessage: "cut 1.4.0",
+    skills: [{ name: "cut-release", files: [{ path: "SKILL.md", contents: "# go" }] }],
+  };
+  expect(InvocationRequest.parse(req)).toMatchObject(req);
+});
+
 test("InvocationResult requires nullable fields to be present", () => {
   const ok = InvocationResult.safeParse({
     status: "completed",

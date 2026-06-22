@@ -22,11 +22,10 @@ For each run, the control plane resolves *which agent* with *what configuration*
 
 Everything in the control plane is authored configuration that an agent run draws on. Each concept gets its own doc.
 
-**What an agent is made of** — assembled by *referencing* these; nothing is embedded, so a skill or MCP is authored once and reused everywhere:
+**What an agent is made of** — assembled by *referencing* these; nothing is embedded, so a skill is authored once and reused everywhere:
 
 - [`agent-registry.md`](agent-registry.md) — the catalog of agents (system prompt, model, attached building blocks)
 - [`skill-registry.md`](skill-registry.md) — reusable skills an agent can attach
-- [`mcp-registry.md`](mcp-registry.md) — MCP servers an agent can be granted
 
 Any agent can act as a **subagent** — when one agent delegates to another, the delegate is just an agent from the same registry. There is no separate subagent registry.
 

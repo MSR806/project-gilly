@@ -17,7 +17,7 @@ const json = (body: unknown, status = 200) =>
 /**
  * Web channel + the seed of the control-plane management API. Serves the UI's
  * HTTP endpoints over `Bun.serve`. Today read-only agent listing; chat (SSE) and
- * agent/skill/MCP/connection CRUD layer on here later.
+ * agent/skill CRUD layer on here later.
  */
 export function createWebChannel(deps: {
   engine: ReturnType<typeof createEngine>;

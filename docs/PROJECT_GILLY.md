@@ -36,7 +36,7 @@ First you create an agent and configure it. These pieces are what turn a blank a
 | Piece | What it is |
 | --- | --- |
 | **Instructions** | The agent's job, scope, and style |
-| **Tools / MCPs** | Controlled access to internal and external systems |
+| **Tools** | Controlled access to internal and external systems |
 | **Skills** | Reusable capabilities you attach to an agent |
 | **Subagents** | Specialized helpers a main agent can call on |
 | **Targets** | Where the results land |

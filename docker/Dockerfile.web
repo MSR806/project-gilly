@@ -1,4 +1,4 @@
-# Gilly control plane — Slack (Socket Mode) listener + session/run engine.
+# Gilly web UI — Next.js app. Proxies /api/* to the control-plane (see API_URL).
 # Pinned to match the lockfile's bun so --frozen-lockfile stays stable.
 FROM oven/bun:1.3.5 AS base
 WORKDIR /app
@@ -9,5 +9,6 @@ COPY packages ./packages
 COPY apps ./apps
 RUN bun install --frozen-lockfile
 
-# Agent/skill JSON config is mounted at runtime; SQLite store lives on a volume.
-CMD ["bun", "run", "--filter", "@gilly/control-plane", "start"]
+EXPOSE 3000
+# `next dev` binds 0.0.0.0 by default, so it's reachable through the published port.
+CMD ["bun", "run", "--filter", "@gilly/web", "dev"]

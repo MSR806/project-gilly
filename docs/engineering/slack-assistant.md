@@ -18,7 +18,7 @@ The conversation key is `channel:thread_ts`, which maps to a Gilly Session (so f
 ## UX features
 
 - **Reactions** on the user's message (`apps/control-plane/src/channels/slack.ts`): `eyes` on receipt, `white_check_mark` on done, `warning` on error, `hourglass_flowing_sand` when a message is queued behind an active run (`engine.handle` returns `{ queued }`). Reaction failures are swallowed — never block the reply.
-- **`task_card`** (assistant panel): a single Slack `task_card` block streamed via `sayStream` — received (ack reaction) → working (`in_progress`) → done (`complete`). Per-tool step cards wait until agents have MCP/tools.
+- **Plan block** (assistant panel): streamed via `sayStream` with `task_display_mode: "plan"` — a `plan_update` header (`Working…` → `Done`/`Failed`) with one `task_update` step per tool call / intermediate assistant message, and the final answer as the message body.
 - **Thread context** (channel mentions): when `@gilly` is mentioned inside a thread, `conversations.replies` is fetched, formatted by `formatTranscript`, and prepended to the request via `withThreadContext` — no protocol change.
 - **Rich formatting**: replies are sent as Block Kit `markdown` blocks (`toBlocks` in `slack-format.ts`) — standard Markdown, no mrkdwn conversion needed; chunked at the 12k-char block limit.
 

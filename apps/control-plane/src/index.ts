@@ -5,7 +5,7 @@ import { LocalRuntimeProvider } from "@gilly/runtime";
 import type { Channel } from "./channels/channel.ts";
 import { createSlackChannel } from "./channels/slack.ts";
 import { createWebChannel } from "./channels/web.ts";
-import { loadAgents } from "./config.ts";
+import { assertReferencesResolve, loadAgents, loadSkills } from "./config.ts";
 import { createEngine } from "./engine.ts";
 
 // Defaults are anchored to the repo root (this file lives at apps/control-plane/src/),
@@ -14,19 +14,22 @@ import { createEngine } from "./engine.ts";
 // regardless of cwd; absolute values (Docker) pass through unchanged.
 const repoRoot = resolve(import.meta.dir, "../../..");
 const AGENTS_DIR = resolve(repoRoot, process.env.AGENTS_DIR ?? "config/agents");
+const SKILLS_DIR = resolve(repoRoot, process.env.SKILLS_DIR ?? "config/skills");
 const DATABASE_PATH = resolve(repoRoot, process.env.DATABASE_PATH ?? "data/gilly.db");
 const HARNESS_URL = process.env.HARNESS_URL ?? "http://localhost:8080";
 const WEB_PORT = Number(process.env.WEB_PORT ?? 4000);
 const { SLACK_BOT_TOKEN, SLACK_APP_TOKEN } = process.env;
 
 const agents = loadAgents(AGENTS_DIR);
+const skills = loadSkills(SKILLS_DIR);
+assertReferencesResolve(agents, skills); // typos fail at boot, not mid-run
 // loadAgents throws on an empty dir, so there is always a first agent to bind to.
 const agentId = process.env.GILLY_AGENT_ID ?? agents.keys().next().value ?? "";
 
 mkdirSync(dirname(DATABASE_PATH), { recursive: true });
 const db = createDb(DATABASE_PATH);
 const runtime = new LocalRuntimeProvider(HARNESS_URL);
-const engine = createEngine({ db, runtime, agents });
+const engine = createEngine({ db, runtime, agents, skills });
 
 // Web is always on (the UI + management API). Slack is optional — only if configured.
 const channels: Channel[] = [createWebChannel({ engine, agents, port: WEB_PORT })];

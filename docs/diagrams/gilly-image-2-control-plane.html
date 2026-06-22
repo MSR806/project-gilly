@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gilly Diagram 2 - Control Plane</title>
+    <style>
+      :root {
+        --ink: #171717;
+        --muted: #5f5f5f;
+        --paper: #f8f7f2;
+        --panel: #fffdf7;
+        --line: #1d1d1d;
+        --yellow: #ffe064;
+        --yellow-soft: #fff3b2;
+        --blue: #d8ebff;
+        --green: #ddf2df;
+        --orange: #ffe0ba;
+        --gray: #efefef;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #111;
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      .poster {
+        width: 1800px;
+        height: 1000px;
+        padding: 46px;
+        background: var(--paper);
+      }
+
+      .canvas {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        border: 3px solid var(--line);
+        border-radius: 30px;
+        background: var(--panel);
+        overflow: hidden;
+        padding: 46px 52px;
+      }
+
+      .canvas::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        opacity: 0.2;
+        pointer-events: none;
+        background-image:
+          linear-gradient(90deg, rgba(0, 0, 0, 0.045) 1px, transparent 1px),
+          linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+        background-size: 28px 28px;
+      }
+
+      .content {
+        position: relative;
+        z-index: 1;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 40px;
+      }
+
+      h1 {
+        margin: 0;
+        max-width: 1200px;
+        font-size: 58px;
+        line-height: 1.02;
+        letter-spacing: 0;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding-top: 10px;
+        font-size: 30px;
+        font-weight: 850;
+      }
+
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 52px;
+        height: 52px;
+        border: 3px solid var(--line);
+        border-radius: 14px;
+        background: var(--yellow);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 28px;
+        font-weight: 900;
+      }
+
+      .subtitle {
+        margin: 14px 0 34px;
+        color: var(--muted);
+        font-size: 27px;
+        line-height: 1.3;
+      }
+
+      .architecture {
+        display: grid;
+        grid-template-columns: 300px 1fr 420px;
+        gap: 36px;
+        align-items: stretch;
+      }
+
+      .lane-title {
+        font-size: 18px;
+        font-weight: 950;
+        color: #4b4b4b;
+        text-transform: uppercase;
+        letter-spacing: 0;
+      }
+
+      .pill {
+        border: 2.5px solid var(--line);
+        border-radius: 14px;
+        min-height: 74px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        font-size: 24px;
+        font-weight: 900;
+        line-height: 1.1;
+      }
+
+      .channel {
+        background: var(--blue);
+      }
+
+      .channels-container {
+        border: 3px solid var(--line);
+        border-radius: 22px;
+        background: var(--blue);
+        padding: 24px;
+        min-height: 0;
+        box-shadow: 12px 12px 0 #111;
+      }
+
+      .channels-container h2 {
+        margin: 0 0 8px;
+        font-size: 38px;
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      .channels-container p {
+        margin: 0 0 20px;
+        color: #24384b;
+        font-size: 17px;
+        line-height: 1.18;
+        font-weight: 760;
+      }
+
+      .channel-list {
+        display: grid;
+        gap: 16px;
+      }
+
+      .channels-container .pill {
+        background: rgba(255, 255, 255, 0.7);
+      }
+
+      .harness {
+        background: var(--green);
+      }
+
+      .sandbox {
+        background: var(--orange);
+      }
+
+      .center {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .control-plane {
+        border: 3px solid var(--line);
+        border-radius: 22px;
+        background: var(--yellow);
+        padding: 34px;
+        min-height: 520px;
+        box-shadow: 12px 12px 0 #111;
+      }
+
+      .control-plane h2 {
+        margin: 0 0 12px;
+        font-size: 56px;
+        line-height: 0.98;
+        letter-spacing: 0;
+      }
+
+      .control-plane p {
+        margin: 0 0 28px;
+        color: #403715;
+        font-size: 24px;
+        line-height: 1.18;
+        font-weight: 760;
+      }
+
+      .features {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .feature {
+        border: 2px solid var(--line);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.84);
+        min-height: 60px;
+        padding: 12px 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        font-weight: 900;
+        text-align: center;
+        line-height: 1.08;
+      }
+
+      .sandbox-container {
+        border: 3px solid var(--line);
+        border-radius: 22px;
+        background: var(--orange);
+        padding: 24px;
+        min-height: 0;
+        box-shadow: 12px 12px 0 #111;
+      }
+
+      .sandbox-container h2 {
+        margin: 0 0 8px;
+        font-size: 38px;
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      .sandbox-container p {
+        margin: 0 0 16px;
+        color: #4a3217;
+        font-size: 17px;
+        line-height: 1.18;
+        font-weight: 760;
+      }
+
+      .sandbox-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 18px;
+      }
+
+      .sandbox-chip {
+        border: 2px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.82);
+        padding: 8px 12px;
+        font-size: 16px;
+        font-weight: 900;
+      }
+
+      .harness-inside {
+        border: 2.5px solid var(--line);
+        border-radius: 18px;
+        background: var(--green);
+        padding: 18px;
+      }
+
+      .harness-inside strong {
+        display: block;
+        margin-bottom: 13px;
+        font-size: 23px;
+        line-height: 1.05;
+      }
+
+      .harness-list {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .harness-list .pill {
+        min-height: 58px;
+        padding: 10px;
+        font-size: 19px;
+      }
+
+      .arrow-label {
+        position: absolute;
+        top: 238px;
+        left: -22px;
+        right: -22px;
+        display: flex;
+        justify-content: space-between;
+        pointer-events: none;
+      }
+
+      .arrow {
+        width: 58px;
+        height: 3px;
+        background: var(--line);
+        position: relative;
+      }
+
+      .arrow::after {
+        content: "";
+        position: absolute;
+        right: -2px;
+        top: -5px;
+        width: 12px;
+        height: 12px;
+        border-top: 3px solid var(--line);
+        border-right: 3px solid var(--line);
+        transform: rotate(45deg);
+      }
+
+      .arrow.left {
+        transform: rotate(180deg);
+      }
+
+    </style>
+  </head>
+  <body>
+    <main class="poster" aria-label="Gilly control plane architecture">
+      <section class="canvas">
+        <div class="content">
+          <header>
+            <h1>Gilly connects channels to any sandboxed harness.</h1>
+            <div class="brand" aria-label="Gilly">
+              <div class="brand-mark">G</div>
+              <span>Gilly</span>
+            </div>
+          </header>
+
+          <p class="subtitle">
+            Keep the best harness for each model. Manage agents, skills, tools, triggers, and channels once.
+          </p>
+
+          <section class="architecture" aria-label="Gilly architecture">
+            <div class="channels-container">
+              <h2>Channels</h2>
+              <p>Where work starts and where humans interact with agents.</p>
+              <div class="channel-list">
+              <div class="pill channel">Slack</div>
+              <div class="pill channel">Web chat</div>
+              <div class="pill channel">Telegram</div>
+              <div class="pill channel">Discord</div>
+              <div class="pill channel">WhatsApp</div>
+              </div>
+            </div>
+
+            <div class="center">
+              <div class="arrow-label" aria-hidden="true">
+                <div class="arrow"></div>
+                <div class="arrow"></div>
+              </div>
+
+              <div class="control-plane">
+                <h2>Gilly<br />Control Plane</h2>
+                <p>One place to define what runs, what it can use, what starts it, and where results go.</p>
+                <div class="features">
+                  <div class="feature">Agents</div>
+                  <div class="feature">Subagents</div>
+                  <div class="feature">Skills</div>
+                  <div class="feature">Tools / MCPs</div>
+                  <div class="feature">Crons</div>
+                  <div class="feature">Triggers</div>
+                  <div class="feature">Sessions</div>
+                  <div class="feature">Permissions</div>
+                  <div class="feature">Observability</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="sandbox-container">
+              <h2>Any Sandbox</h2>
+              <p>The compute boundary can change without changing the control plane.</p>
+              <div class="sandbox-options">
+                <span class="sandbox-chip">Modal</span>
+                <span class="sandbox-chip">E2B</span>
+                <span class="sandbox-chip">Cloudflare</span>
+                <span class="sandbox-chip">Daytona</span>
+                <span class="sandbox-chip">Blaxel</span>
+                <span class="sandbox-chip">Runloop</span>
+                <span class="sandbox-chip">Vercel</span>
+                <span class="sandbox-chip">Docker</span>
+                <span class="sandbox-chip">Unix-Local</span>
+              </div>
+
+              <div class="harness-inside">
+                <strong>Any Harness Inside</strong>
+                <div class="harness-list">
+                  <div class="pill harness">Claude Code</div>
+                  <div class="pill harness">Codex</div>
+                  <div class="pill harness">LangGraph</div>
+                  <div class="pill harness">CrewAI</div>
+                  <div class="pill harness">Custom</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+        </div>
+
+      </section>
+    </main>
+  </body>
+</html>

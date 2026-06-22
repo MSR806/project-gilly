@@ -13,7 +13,7 @@ An agent has a **system prompt** and a **model**, plus references to building bl
 | **System prompt** | The agent's role, scope, and style — *not* the task |
 | **Model** | Which model drives the loop (Claude / GPT / Gemini), per agent |
 | **Skills** | Reusable capabilities — [`skill-registry.md`](skill-registry.md) |
-| **MCPs / tools** | Scoped system access; git/repo access is one such grant — [`mcp-registry.md`](mcp-registry.md) |
+| **Tools** | Scoped system access; git/repo access is one such grant |
 | **Subagents** | Other agents this one may delegate to — just entries in this same registry |
 
 Two things to note: the **system prompt is not the task** — the task arrives as a user message at invocation time (Slack mention, cron, Fleet, direct chat), so one agent handles many tasks. And **any agent can be a subagent** — there's no separate catalog; "subagent" is a role, not a kind.
