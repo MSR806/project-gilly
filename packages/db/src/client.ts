@@ -18,6 +18,20 @@ function migrate(sqlite: Database) {
     CREATE TABLE IF NOT EXISTS follow_ups (
       id TEXT PRIMARY KEY, session_id TEXT NOT NULL, input TEXT NOT NULL, ref TEXT, created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS agents (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, model TEXT NOT NULL,
+      system_prompt TEXT NOT NULL, tools_json TEXT,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS skills (
+      name TEXT PRIMARY KEY, files_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS agent_skills (
+      agent_id TEXT NOT NULL, skill_name TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE(agent_id, skill_name)
+    );
   `);
   // Add `ref` to follow_ups created before it existed (ignore if already present).
   try {

@@ -1,6 +1,11 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { createDb } from "@gilly/db";
+import {
+  createDb,
+  loadAgentConfigsFromDb,
+  loadSkillBundlesFromDb,
+  seedRegistryFromConfig,
+} from "@gilly/db";
 import { LocalRuntimeProvider } from "@gilly/runtime";
 import type { Channel } from "./channels/channel.ts";
 import { createSlackChannel } from "./channels/slack.ts";
@@ -20,19 +25,28 @@ const HARNESS_URL = process.env.HARNESS_URL ?? "http://localhost:8080";
 const WEB_PORT = Number(process.env.WEB_PORT ?? 4000);
 const { SLACK_BOT_TOKEN, SLACK_APP_TOKEN } = process.env;
 
-const agents = loadAgents(AGENTS_DIR);
-const skills = loadSkills(SKILLS_DIR);
-assertReferencesResolve(agents, skills); // typos fail at boot, not mid-run
-// loadAgents throws on an empty dir, so there is always a first agent to bind to.
-const agentId = process.env.GILLY_AGENT_ID ?? agents.keys().next().value ?? "";
+// 1. Load file-based configs (for backwards-compat seeding).
+const fileAgents = loadAgents(AGENTS_DIR);
+const fileSkills = loadSkills(SKILLS_DIR);
+assertReferencesResolve(fileAgents, fileSkills);
 
+// 2. Open the database and seed file configs into the registry.
 mkdirSync(dirname(DATABASE_PATH), { recursive: true });
 const db = createDb(DATABASE_PATH);
+seedRegistryFromConfig(db, fileAgents, fileSkills);
+
+// 3. Build mutable runtime maps from DB (these are what the engine and API use).
+const agents = loadAgentConfigsFromDb(db);
+const skills = loadSkillBundlesFromDb(db);
+assertReferencesResolve(agents, skills);
+
+const agentId = process.env.GILLY_AGENT_ID ?? agents.keys().next().value ?? "";
+
 const runtime = new LocalRuntimeProvider(HARNESS_URL);
 const engine = createEngine({ db, runtime, agents, skills });
 
 // Web is always on (the UI + management API). Slack is optional — only if configured.
-const channels: Channel[] = [createWebChannel({ engine, agents, port: WEB_PORT })];
+const channels: Channel[] = [createWebChannel({ engine, agents, skills, db, port: WEB_PORT })];
 if (SLACK_BOT_TOKEN && SLACK_APP_TOKEN) {
   channels.push(
     createSlackChannel({ engine, botToken: SLACK_BOT_TOKEN, appToken: SLACK_APP_TOKEN, agentId }),

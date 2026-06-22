@@ -1,7 +1,9 @@
 import type { Run, Session } from "@gilly/core";
+import { AgentConfig } from "@gilly/core";
+import { SkillBundle } from "@gilly/harness-protocol";
 import { and, asc, eq } from "drizzle-orm";
 import type { Db } from "./client.ts";
-import { followUps, runs, sessions } from "./schema.ts";
+import { agentSkills, agents, followUps, runs, sessions, skills } from "./schema.ts";
 
 const now = () => Date.now();
 
@@ -92,4 +94,133 @@ export function dequeueAllFollowUps(
     .all();
   if (rows.length) db.delete(followUps).where(eq(followUps.sessionId, sessionId)).run();
   return rows.map((r) => ({ input: r.input, ref: r.ref }));
+}
+
+// ─── Registry: Agents ──────────────────────────────────────────────────────
+
+/** List all agent rows from the registry table. */
+export function listAgentRows(db: Db) {
+  return db.select().from(agents).all();
+}
+
+/** Upsert an agent config into the registry. */
+export function upsertAgentConfig(db: Db, config: AgentConfig): void {
+  const ts = now();
+  const toolsJson = config.tools ? JSON.stringify(config.tools) : null;
+  const existing = db.select().from(agents).where(eq(agents.id, config.id)).get();
+  if (existing) {
+    db.update(agents)
+      .set({
+        name: config.name,
+        model: config.model,
+        systemPrompt: config.systemPrompt,
+        toolsJson,
+        updatedAt: ts,
+      })
+      .where(eq(agents.id, config.id))
+      .run();
+  } else {
+    db.insert(agents)
+      .values({
+        id: config.id,
+        name: config.name,
+        model: config.model,
+        systemPrompt: config.systemPrompt,
+        toolsJson,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .run();
+  }
+}
+
+// ─── Registry: Skills ──────────────────────────────────────────────────────
+
+/** List all skill rows from the registry table. */
+export function listSkillRows(db: Db) {
+  return db.select().from(skills).all();
+}
+
+/** Upsert a skill bundle into the registry. */
+export function upsertSkillBundle(db: Db, bundle: SkillBundle): void {
+  const ts = now();
+  const filesJson = JSON.stringify(bundle.files);
+  const existing = db.select().from(skills).where(eq(skills.name, bundle.name)).get();
+  if (existing) {
+    db.update(skills).set({ filesJson, updatedAt: ts }).where(eq(skills.name, bundle.name)).run();
+  } else {
+    db.insert(skills).values({ name: bundle.name, filesJson, createdAt: ts, updatedAt: ts }).run();
+  }
+}
+
+// ─── Registry: Agent-Skill links ──────────────────────────────────────────
+
+/** Replace all skill links for an agent (delete+reinsert). */
+export function replaceAgentSkillLinks(db: Db, agentId: string, skillNames: string[]): void {
+  db.delete(agentSkills).where(eq(agentSkills.agentId, agentId)).run();
+  const ts = now();
+  for (const skillName of skillNames) {
+    db.insert(agentSkills).values({ agentId, skillName, createdAt: ts }).run();
+  }
+}
+
+/** Get skill names linked to an agent. */
+export function getAgentSkillNames(db: Db, agentId: string): string[] {
+  return db
+    .select({ skillName: agentSkills.skillName })
+    .from(agentSkills)
+    .where(eq(agentSkills.agentId, agentId))
+    .all()
+    .map((r) => r.skillName);
+}
+
+// ─── Registry: Loaders (DB → runtime maps) ────────────────────────────────
+
+/** Load all agents from DB into a Map<id, AgentConfig>. */
+export function loadAgentConfigsFromDb(db: Db): Map<string, AgentConfig> {
+  const map = new Map<string, AgentConfig>();
+  for (const row of listAgentRows(db)) {
+    const tools = row.toolsJson ? (JSON.parse(row.toolsJson) as string[]) : undefined;
+    const skillNames = getAgentSkillNames(db, row.id);
+    const config = AgentConfig.parse({
+      id: row.id,
+      name: row.name,
+      model: row.model,
+      systemPrompt: row.systemPrompt,
+      ...(tools ? { tools } : {}),
+      ...(skillNames.length ? { skills: skillNames } : {}),
+    });
+    map.set(config.id, config);
+  }
+  return map;
+}
+
+/** Load all skills from DB into a Map<name, SkillBundle>. */
+export function loadSkillBundlesFromDb(db: Db): Map<string, SkillBundle> {
+  const map = new Map<string, SkillBundle>();
+  for (const row of listSkillRows(db)) {
+    const files = JSON.parse(row.filesJson) as { path: string; contents: string }[];
+    const bundle = SkillBundle.parse({ name: row.name, files });
+    map.set(bundle.name, bundle);
+  }
+  return map;
+}
+
+/** Seed file-based configs into the DB (insert-if-missing semantics). */
+export function seedRegistryFromConfig(
+  db: Db,
+  fileAgents: Map<string, AgentConfig>,
+  fileSkills: Map<string, SkillBundle>,
+): void {
+  for (const bundle of fileSkills.values()) {
+    const existing = db.select().from(skills).where(eq(skills.name, bundle.name)).get();
+    if (!existing) upsertSkillBundle(db, bundle);
+  }
+  for (const config of fileAgents.values()) {
+    const existing = db.select().from(agents).where(eq(agents.id, config.id)).get();
+    if (!existing) {
+      upsertAgentConfig(db, config);
+      if (config.skills?.length) replaceAgentSkillLinks(db, config.id, config.skills);
+    }
+  }
 }
