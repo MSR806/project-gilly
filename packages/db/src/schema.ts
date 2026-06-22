@@ -1,5 +1,37 @@
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
+// ─── Registry tables (agents, skills, agent_skills) ────────────────────────
+
+/** UI/DB-managed agent configurations. */
+export const agents = sqliteTable("agents", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  model: text("model").notNull(),
+  systemPrompt: text("system_prompt").notNull(),
+  /** JSON-serialized string[] of tool names. */
+  toolsJson: text("tools_json"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/** UI/DB-managed skill bundles. */
+export const skills = sqliteTable("skills", {
+  name: text("name").primaryKey(),
+  /** JSON-serialized SkillBundle.files array. */
+  filesJson: text("files_json").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/** Many-to-many: which skills are attached to which agent. */
+export const agentSkills = sqliteTable("agent_skills", {
+  agentId: text("agent_id").notNull(),
+  skillName: text("skill_name").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
+// ─── Operational state tables ──────────────────────────────────────────────
+
 /** Durable conversation/work context. One Slack thread maps to one row. */
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),

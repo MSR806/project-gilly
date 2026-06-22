@@ -197,3 +197,135 @@ body {
   opacity: 0.5;
   cursor: default;
 }
+
+/* ─── Sections ──────────────────────────────────────────────────────────── */
+
+.section {
+  margin-bottom: 40px;
+}
+
+/* ─── Skill chips on agent cards ────────────────────────────────────────── */
+
+.card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.chip {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #eef2ff;
+  color: var(--accent);
+  border-radius: 4px;
+}
+
+.card__preview {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow: hidden;
+  max-height: 3.9em;
+}
+
+/* ─── Forms ─────────────────────────────────────────────────────────────── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 560px;
+}
+
+.form__label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.form__input {
+  padding: 8px 10px;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.form__textarea {
+  padding: 8px 10px;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.form__fieldset {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.form__fieldset legend {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 0 4px;
+}
+
+.form__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.form__button {
+  align-self: flex-start;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.form__button:hover {
+  opacity: 0.9;
+}
+
+.form__msg {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.form__chat-link {
+  display: inline-block;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: #059669;
+  border-radius: 6px;
+  text-decoration: none;
+}
+
+.form__chat-link:hover {
+  opacity: 0.9;
+}
