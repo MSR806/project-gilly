@@ -68,6 +68,8 @@ The **OpenAI Agents SDK** is itself model- and provider-agnostic — through ada
 
 **ACP (Agent Client Protocol)** is the protocol-level direction for Gilly's harness layer. Rather than writing one bespoke adapter per agent framework, the ACP driver communicates with any agent process that speaks ACP's stdio JSON-RPC wire format.
 
+The driver uses the official **[`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk)** TypeScript package for protocol types, method constants, and `PROTOCOL_VERSION`. A thin stdio transport wrapper remains because the SDK's high-level `ClientApp` API dispatches notifications via registered handlers and doesn't expose the pull-based async iteration our driver needs for interleaving RPC responses with streamed `session/update` notifications.
+
 ### How ACP fits
 
 ```text

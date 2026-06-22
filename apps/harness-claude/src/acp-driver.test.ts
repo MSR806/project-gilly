@@ -34,10 +34,11 @@ const minimalReq: InvocationRequest = {
 test("buildInitialize produces correct method and params", () => {
   setup();
   const msg = buildInitialize();
+  const params = msg.params as Record<string, unknown>;
   expect(msg.method).toBe("initialize");
-  expect(msg.params.protocolVersion).toBe(1);
-  expect(msg.params.clientCapabilities).toEqual({});
-  expect(msg.params.clientInfo).toEqual({ name: "gilly-harness", version: "1.0.0" });
+  expect(params.protocolVersion).toBe(1);
+  expect(params.clientCapabilities).toEqual({});
+  expect(params.clientInfo).toEqual({ name: "gilly-harness", version: "1.0.0" });
   expect(msg.id).toBe(1);
 });
 
