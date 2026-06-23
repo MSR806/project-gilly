@@ -14,3 +14,7 @@ data/
 
 # Bun
 .bun/
+
+# UI/runtime-created skills (LocalSkillStore backing files) — keep only the seed skill.
+config/skills/*
+!config/skills/our-repos/
