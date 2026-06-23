@@ -1,5 +1,19 @@
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
+/**
+ * A configured agent, mutable at runtime via the management API. `tools`/`skills` are JSON
+ * `string[]` (null = none); the rest mirror the `AgentConfig` schema in `@gilly/core`.
+ */
+export const agents = sqliteTable("agents", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  model: text("model").notNull(),
+  systemPrompt: text("system_prompt").notNull(),
+  tools: text("tools"),
+  skills: text("skills"),
+  createdAt: integer("created_at").notNull(),
+});
+
 /** Durable conversation/work context. One Slack thread maps to one row. */
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),

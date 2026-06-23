@@ -19,13 +19,29 @@ export function workspaceDir(req: InvocationRequest): string {
 }
 
 /**
+ * Gilly tool abstractions → concrete Claude Agent SDK tools. Users (and the DB) only ever deal in
+ * the three high-level capabilities; the exact harness tool names live here and never leak upward.
+ */
+const TOOL_MAP: Record<string, string[]> = {
+  Read: ["Read", "Glob", "Grep"],
+  Write: ["Write", "Edit"],
+  Bash: ["Bash"],
+};
+
+/** Expand Gilly tool abstractions into SDK tool names (unknowns pass through), de-duplicated. */
+export function expandTools(gillyTools: string[]): string[] {
+  return [...new Set(gillyTools.flatMap((t) => TOOL_MAP[t] ?? [t]))];
+}
+
+/**
  * Assemble the SDK options shared by the streaming and non-streaming paths so they stay in
  * sync. Pure (no I/O). An "agentic" agent — one with built-in tools or skills — gets Claude
  * Code's tool-use guidance, bypassed permissions (headless: no human to approve), and a
  * sandboxed workspace. A bare chat agent stays chat-only.
  */
 export function buildOptions(req: InvocationRequest, streaming: boolean): Options {
-  const fsTools = req.agent.tools ?? [];
+  // `req.agent.tools` holds Gilly abstractions (Read/Write/Bash); expand to real SDK tools here.
+  const fsTools = expandTools(req.agent.tools ?? []);
   const skills = req.skills ?? [];
   const hasSkills = skills.length > 0;
   const agentic = fsTools.length > 0 || hasSkills;

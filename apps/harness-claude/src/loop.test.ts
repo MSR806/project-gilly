@@ -6,6 +6,7 @@ import type { query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { InvocationRequest } from "@gilly/harness-protocol";
 import {
   buildOptions,
+  expandTools,
   materializeSkills,
   reduceSdkStream,
   runAgentLoop,
@@ -13,6 +14,20 @@ import {
   summarizeToolUse,
   workspaceDir,
 } from "./loop.ts";
+
+test("expandTools maps Gilly abstractions to SDK tools and de-dupes; unknowns pass through", () => {
+  expect(expandTools(["Read", "Write", "Bash"])).toEqual([
+    "Read",
+    "Glob",
+    "Grep",
+    "Write",
+    "Edit",
+    "Bash",
+  ]);
+  expect(expandTools([])).toEqual([]);
+  expect(expandTools(["Read", "Grep"])).toEqual(["Read", "Glob", "Grep"]); // dedupe
+  expect(expandTools(["Custom"])).toEqual(["Custom"]); // unknown passes through
+});
 
 // Minimal message factories; cast since we only populate the fields the reducer reads.
 const msg = (o: unknown) => o as SDKMessage;
@@ -96,11 +111,12 @@ test("buildOptions: granting tools enables a workspace + bypassed permissions", 
   process.env.WORKSPACES_DIR = "/tmp/gilly-ws";
   const coding: InvocationRequest = {
     ...req,
+    // Gilly abstractions; the harness expands Read → Read/Glob/Grep before reaching the SDK.
     agent: { ...req.agent, tools: ["Read", "Bash"] },
     workspace: { provider: "local", handle: "s2" },
   };
   const opts = buildOptions(coding, false);
-  expect(opts.allowedTools).toEqual(["Read", "Bash"]);
+  expect(opts.allowedTools).toEqual(["Read", "Glob", "Grep", "Bash"]);
   expect(opts.permissionMode).toBe("bypassPermissions");
   expect(opts.allowDangerouslySkipPermissions).toBe(true);
   expect(opts.cwd).toBe("/tmp/gilly-ws/s2");

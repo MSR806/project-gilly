@@ -30,6 +30,9 @@ function fakeRuntime(result: InvocationResult, events: StreamEvent[] = []): Runt
 
 const baseInput = { agentId: "echo", source: "test", sourceKey: "C1:1.0" };
 
+/** Lookup that knows only the echo agent — mirrors the DB-backed getAgent in prod. */
+const getAgent = (id: string) => (id === "echo" ? agent : undefined);
+
 const collect = async (it: AsyncIterable<StreamEvent>) => {
   const out: StreamEvent[] = [];
   for await (const e of it) out.push(e);
@@ -49,7 +52,7 @@ test("stream forwards events and persists session + run on done", async () => {
       { status: "completed", finalText: "", harnessSessionId: null, error: null },
       events,
     ),
-    agents: new Map([["echo", agent]]),
+    getAgent,
   });
 
   const got = await collect(engine.stream({ ...baseInput, userMessage: "hi" }));
@@ -67,7 +70,7 @@ test("stream yields an error event for an unknown agent", async () => {
       harnessSessionId: null,
       error: null,
     }),
-    agents: new Map([["echo", agent]]),
+    getAgent,
   });
 
   const got = await collect(engine.stream({ ...baseInput, agentId: "nope", userMessage: "hi" }));
@@ -80,7 +83,7 @@ test("handle streams the primary run and persists the harness session", async ()
     { status: "completed", finalText: "", harnessSessionId: null, error: null },
     [{ type: "done", finalText: "hello back", harnessSessionId: "hs-1" }],
   );
-  const engine = createEngine({ db, runtime, agents: new Map([["echo", agent]]) });
+  const engine = createEngine({ db, runtime, getAgent });
 
   const runs: { refs: string[]; message: string; events: StreamEvent[] }[] = [];
   await engine.handle({
@@ -112,7 +115,7 @@ test("handle surfaces an unknown agent as an error event", async () => {
       harnessSessionId: null,
       error: null,
     }),
-    agents: new Map([["echo", agent]]),
+    getAgent,
   });
 
   let events: StreamEvent[] = [];
@@ -150,7 +153,7 @@ test("follow-ups queued mid-run are answered as one combined batch", async () =>
     },
   };
 
-  const engine = createEngine({ db, runtime, agents: new Map([["echo", agent]]) });
+  const engine = createEngine({ db, runtime, getAgent });
   const runs: { refs: string[]; message: string }[] = [];
   await engine.handle({
     ...baseInput,

@@ -1,9 +1,82 @@
-import type { Run, Session } from "@gilly/core";
+import { AgentConfig, type Run, type Session } from "@gilly/core";
 import { and, asc, eq } from "drizzle-orm";
 import type { Db } from "./client.ts";
-import { followUps, runs, sessions } from "./schema.ts";
+import { agents, followUps, runs, sessions } from "./schema.ts";
 
 const now = () => Date.now();
+
+// --- Agents: config, mutable at runtime via the management API ---------------
+
+type AgentRow = typeof agents.$inferSelect;
+
+/** Parse a stored row back into a validated `AgentConfig` (JSON arrays + Zod check). */
+function rowToAgent(row: AgentRow): AgentConfig {
+  return AgentConfig.parse({
+    id: row.id,
+    name: row.name,
+    model: row.model,
+    systemPrompt: row.systemPrompt,
+    tools: row.tools ? JSON.parse(row.tools) : undefined,
+    skills: row.skills ? JSON.parse(row.skills) : undefined,
+  });
+}
+
+/** Validate config and shape it for storage (arrays → JSON text, empty → null). */
+function agentToRow(cfg: AgentConfig): AgentRow {
+  const a = AgentConfig.parse(cfg);
+  return {
+    id: a.id,
+    name: a.name,
+    model: a.model,
+    systemPrompt: a.systemPrompt,
+    tools: a.tools?.length ? JSON.stringify(a.tools) : null,
+    skills: a.skills?.length ? JSON.stringify(a.skills) : null,
+    createdAt: now(),
+  };
+}
+
+/** All agents, oldest first (so the seeded default stays first). */
+export function listAgents(db: Db): AgentConfig[] {
+  return db
+    .select()
+    .from(agents)
+    .orderBy(asc(agents.createdAt), asc(agents.id))
+    .all()
+    .map(rowToAgent);
+}
+
+export function getAgent(db: Db, id: string): AgentConfig | undefined {
+  const row = db.select().from(agents).where(eq(agents.id, id)).get();
+  return row ? rowToAgent(row) : undefined;
+}
+
+/** Insert a new agent. Throws if the id already exists. */
+export function createAgent(db: Db, cfg: AgentConfig): AgentConfig {
+  if (getAgent(db, cfg.id)) throw new Error(`Agent "${cfg.id}" already exists`);
+  db.insert(agents).values(agentToRow(cfg)).run();
+  return cfg;
+}
+
+/** Replace an existing agent's config (id is immutable). Throws if it doesn't exist. */
+export function updateAgent(db: Db, id: string, cfg: AgentConfig): AgentConfig {
+  if (!getAgent(db, id)) throw new Error(`Agent "${id}" not found`);
+  const row = agentToRow({ ...cfg, id });
+  db.update(agents)
+    .set({
+      name: row.name,
+      model: row.model,
+      systemPrompt: row.systemPrompt,
+      tools: row.tools,
+      skills: row.skills,
+    })
+    .where(eq(agents.id, id))
+    .run();
+  return { ...cfg, id };
+}
+
+export function deleteAgent(db: Db, id: string): void {
+  db.delete(agents).where(eq(agents.id, id)).run();
+}
 
 /** Find the Session for a conversation key, creating it on first contact. */
 export function getOrCreateSession(

@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { AgentConfig } from "@gilly/core";
+import { createAgent, type Db, listAgents } from "@gilly/db";
 import type { SkillBundle } from "@gilly/harness-protocol";
 import { Glob } from "bun";
 
@@ -44,6 +45,16 @@ export function loadSkills(dir: string): Map<string, SkillBundle> {
     skills.set(name, { name, files });
   }
   return skills;
+}
+
+/**
+ * First-run seed: if the agents table is empty, import the on-disk `config/agents/*.json` into the
+ * DB so the shipped defaults (echo, coder) keep working. A no-op once any agent exists — after that
+ * the DB is the source of truth and the files are ignored. Skills need no seed; they stay on disk.
+ */
+export function seedAgents(db: Db, agentsDir: string): void {
+  if (listAgents(db).length > 0) return;
+  for (const agent of loadAgents(agentsDir).values()) createAgent(db, agent);
 }
 
 /**

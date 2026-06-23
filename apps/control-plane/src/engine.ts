@@ -53,17 +53,18 @@ async function* oneError(error: string): AsyncGenerator<StreamEvent> {
 export function createEngine(deps: {
   db: Db;
   runtime: RuntimeProvider;
-  agents: Map<string, AgentConfig>;
-  /** Skill bundles by name, for resolving an agent's attached skills; defaults to none. */
-  skills?: Map<string, SkillBundle>;
+  /** Resolve an agent by id at call time — DB-backed in prod, so runtime-created agents are seen. */
+  getAgent: (id: string) => AgentConfig | undefined;
+  /** Resolve a skill bundle by name (the SkillStore seam); defaults to "no skills". */
+  getSkill?: (name: string) => SkillBundle | undefined;
 }) {
-  const { db, runtime, agents } = deps;
-  const skills = deps.skills ?? new Map<string, SkillBundle>();
+  const { db, runtime, getAgent } = deps;
+  const getSkill = deps.getSkill ?? (() => undefined);
 
   /** Gather the skill bundles an agent attaches. Throws on an unknown name (caught by runFrom). */
   function skillsFor(agent: AgentConfig): SkillBundle[] {
     return (agent.skills ?? []).map((name) => {
-      const bundle = skills.get(name);
+      const bundle = getSkill(name);
       if (!bundle) throw new Error(`Agent "${agent.id}" references unknown skill "${name}"`);
       return bundle;
     });
@@ -109,7 +110,7 @@ export function createEngine(deps: {
 
   /** One run, request-scoped (web chat). No queue — concurrency is the caller's to serialize. */
   async function* stream(input: StreamInput): AsyncIterable<StreamEvent> {
-    const agent = agents.get(input.agentId);
+    const agent = getAgent(input.agentId);
     if (!agent) {
       yield { type: "error", error: `Unknown agent: ${input.agentId}` };
       return;
@@ -129,7 +130,7 @@ export function createEngine(deps: {
    * stream the channel renders; the Run is created eagerly so the active-run guard is reliable.
    */
   async function handle(input: HandleInput): Promise<{ queued: boolean }> {
-    const agent = agents.get(input.agentId);
+    const agent = getAgent(input.agentId);
     if (!agent) {
       await input.run({
         refs: input.ref ? [input.ref] : [],

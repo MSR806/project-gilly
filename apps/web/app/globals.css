@@ -102,6 +102,321 @@ body {
   font-size: 12px;
 }
 
+.section {
+  margin-bottom: 36px;
+}
+
+.section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.section__head .page-title {
+  margin: 0 0 16px;
+}
+
+/* A list card split into a main (clickable) area and trailing actions. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.row__main {
+  flex: 1;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+a.row__main:hover .card__name {
+  color: var(--accent);
+}
+
+.row__actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Buttons + links styled as buttons. */
+.btn {
+  display: inline-block;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  border-color: var(--accent);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn--primary {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.btn--sm {
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
+.btn--danger {
+  color: #b91c1c;
+}
+
+.btn--danger:hover {
+  border-color: #b91c1c;
+}
+
+/* Forms (agent + skill create/edit). */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 640px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.field__label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.field__hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.field input:disabled {
+  background: var(--bg);
+  color: var(--muted);
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+/* Grouped multi-select (tools, skills). */
+.ms {
+  position: relative;
+}
+
+.ms__control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 42px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.ms__control:focus-within,
+.ms__control:hover {
+  border-color: var(--accent);
+}
+
+.ms__toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 60px;
+  padding: 2px 0;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ms__placeholder {
+  color: var(--muted);
+}
+
+.ms__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 10px;
+  font-size: 13px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.ms__chip-x {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.ms__chip-x:hover {
+  color: #b91c1c;
+}
+
+.ms__caret {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ms__panel {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.ms__group + .ms__group {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.ms__group-label {
+  margin: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+
+.ms__option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 14px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.ms__option:hover {
+  background: var(--bg);
+}
+
+.ms__option-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.ms__desc {
+  color: var(--muted);
+}
+
+/* Agent detail view. */
+.detail {
+  margin: 0;
+}
+
+.detail__row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.detail__label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.detail__value {
+  margin: 0;
+  min-width: 0;
+}
+
+.detail__value code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.detail__prompt {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.detail__content {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+.detail__muted {
+  color: var(--muted);
+}
+
+.form__actions {
+  display: flex;
+  gap: 10px;
+}
+
 .chat {
   display: flex;
   flex-direction: column;

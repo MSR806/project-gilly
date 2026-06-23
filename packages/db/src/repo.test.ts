@@ -1,17 +1,69 @@
 import { expect, test } from "bun:test";
+import type { AgentConfig } from "@gilly/core";
 import { createDb } from "./client.ts";
 import {
   completeRun,
+  createAgent,
   createRun,
+  deleteAgent,
   dequeueAllFollowUps,
   dequeueFollowUp,
   enqueueFollowUp,
+  getAgent,
   getOrCreateSession,
   hasActiveRun,
+  listAgents,
+  updateAgent,
 } from "./repo.ts";
 
 const freshDb = () => createDb(":memory:");
 const seed = { agentId: "a", source: "slack", sourceKey: "C1:1.0" };
+const agentCfg: AgentConfig = {
+  id: "coder",
+  name: "Coder",
+  model: "claude-sonnet-4-5",
+  systemPrompt: "Write code.",
+  tools: ["Read", "Bash"],
+  skills: ["our-repos"],
+};
+
+test("agent round-trips through the DB with tools/skills arrays intact", () => {
+  const db = freshDb();
+  createAgent(db, agentCfg);
+  expect(getAgent(db, "coder")).toEqual(agentCfg);
+});
+
+test("chat-only agent (no tools/skills) round-trips without the optional fields", () => {
+  const db = freshDb();
+  const chat: AgentConfig = { id: "echo", name: "Echo", model: "m", systemPrompt: "Hi." };
+  createAgent(db, chat);
+  expect(getAgent(db, "echo")).toEqual(chat);
+});
+
+test("createAgent rejects a duplicate id", () => {
+  const db = freshDb();
+  createAgent(db, agentCfg);
+  expect(() => createAgent(db, agentCfg)).toThrow(/already exists/);
+});
+
+test("listAgents returns agents oldest-first", () => {
+  const db = freshDb();
+  createAgent(db, { id: "a", name: "A", model: "m", systemPrompt: "x" });
+  createAgent(db, { id: "b", name: "B", model: "m", systemPrompt: "x" });
+  expect(listAgents(db).map((a) => a.id)).toEqual(["a", "b"]);
+});
+
+test("updateAgent replaces config; deleteAgent removes it", () => {
+  const db = freshDb();
+  createAgent(db, agentCfg);
+  updateAgent(db, "coder", { ...agentCfg, name: "Coder 2", skills: undefined });
+  const updated = getAgent(db, "coder");
+  expect(updated?.name).toBe("Coder 2");
+  expect(updated?.skills).toBeUndefined();
+  expect(() => updateAgent(db, "ghost", agentCfg)).toThrow(/not found/);
+  deleteAgent(db, "coder");
+  expect(getAgent(db, "coder")).toBeUndefined();
+});
 
 test("getOrCreateSession is idempotent on sourceKey", () => {
   const db = freshDb();

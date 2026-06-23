@@ -1,12 +1,13 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { createDb } from "@gilly/db";
+import { createDb, getAgent, listAgents } from "@gilly/db";
 import { LocalRuntimeProvider } from "@gilly/runtime";
 import type { Channel } from "./channels/channel.ts";
 import { createSlackChannel } from "./channels/slack.ts";
 import { createWebChannel } from "./channels/web.ts";
-import { assertReferencesResolve, loadAgents, loadSkills } from "./config.ts";
+import { seedAgents } from "./config.ts";
 import { createEngine } from "./engine.ts";
+import { LocalSkillStore } from "./stores/local-skill-store.ts";
 
 // Defaults are anchored to the repo root (this file lives at apps/control-plane/src/),
 // so dev works regardless of cwd. Env vars override (Docker sets absolute paths).
@@ -20,19 +21,25 @@ const HARNESS_URL = process.env.HARNESS_URL ?? "http://localhost:8080";
 const WEB_PORT = Number(process.env.WEB_PORT ?? 4000);
 const { SLACK_BOT_TOKEN, SLACK_APP_TOKEN } = process.env;
 
-const agents = loadAgents(AGENTS_DIR);
-const skills = loadSkills(SKILLS_DIR);
-assertReferencesResolve(agents, skills); // typos fail at boot, not mid-run
-// loadAgents throws on an empty dir, so there is always a first agent to bind to.
-const agentId = process.env.GILLY_AGENT_ID ?? agents.keys().next().value ?? "";
-
 mkdirSync(dirname(DATABASE_PATH), { recursive: true });
 const db = createDb(DATABASE_PATH);
+seedAgents(db, AGENTS_DIR); // first run only: import config/agents/*.json into the DB
+const skillStore = new LocalSkillStore(SKILLS_DIR);
+
+// Agent references to unknown skills now fail at run time (engine.skillsFor), recorded as a failed
+// run with a clear message — better than a boot crash for runtime-mutable config.
+const agentId = process.env.GILLY_AGENT_ID ?? listAgents(db)[0]?.id ?? "";
+
 const runtime = new LocalRuntimeProvider(HARNESS_URL);
-const engine = createEngine({ db, runtime, agents, skills });
+const engine = createEngine({
+  db,
+  runtime,
+  getAgent: (id) => getAgent(db, id),
+  getSkill: (name) => skillStore.get(name),
+});
 
 // Web is always on (the UI + management API). Slack is optional — only if configured.
-const channels: Channel[] = [createWebChannel({ engine, agents, port: WEB_PORT })];
+const channels: Channel[] = [createWebChannel({ engine, db, skillStore, port: WEB_PORT })];
 if (SLACK_BOT_TOKEN && SLACK_APP_TOKEN) {
   channels.push(
     createSlackChannel({ engine, botToken: SLACK_BOT_TOKEN, appToken: SLACK_APP_TOKEN, agentId }),

@@ -7,6 +7,10 @@ export type Db = ReturnType<typeof createDb>;
 /** Idempotent DDL — MVP keeps migrations inline instead of a migration tool. */
 function migrate(sqlite: Database) {
   sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS agents (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, model TEXT NOT NULL,
+      system_prompt TEXT NOT NULL, tools TEXT, skills TEXT, created_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, source TEXT NOT NULL,
       source_key TEXT NOT NULL UNIQUE, harness_session_id TEXT, created_at INTEGER NOT NULL

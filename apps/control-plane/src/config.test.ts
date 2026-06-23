@@ -3,8 +3,9 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentConfig } from "@gilly/core";
+import { createDb, listAgents } from "@gilly/db";
 import type { SkillBundle } from "@gilly/harness-protocol";
-import { assertReferencesResolve, loadAgents, loadSkills } from "./config.ts";
+import { assertReferencesResolve, loadAgents, loadSkills, seedAgents } from "./config.ts";
 
 const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
 const agent = { id: "echo", name: "Echo", model: "claude-sonnet-4-5", systemPrompt: "Be terse." };
@@ -36,6 +37,20 @@ test("loadSkills bundles a folder's files; requires SKILL.md", () => {
   mkdirSync(join(bad, "broken"));
   writeFileSync(join(bad, "broken", "readme.md"), "no skill file");
   expect(() => loadSkills(bad)).toThrow(/SKILL.md/);
+});
+
+test("seedAgents imports config on an empty DB, then is a no-op", () => {
+  const dir = tmp("gilly-agents-");
+  writeFileSync(join(dir, "echo.json"), JSON.stringify(agent));
+  const db = createDb(":memory:");
+
+  seedAgents(db, dir);
+  expect(listAgents(db).map((a) => a.id)).toEqual(["echo"]);
+
+  // Second run does not re-import (no throw, count unchanged) even if files change.
+  writeFileSync(join(dir, "extra.json"), JSON.stringify({ ...agent, id: "extra" }));
+  seedAgents(db, dir);
+  expect(listAgents(db).map((a) => a.id)).toEqual(["echo"]);
 });
 
 test("assertReferencesResolve flags unknown skill references", () => {
