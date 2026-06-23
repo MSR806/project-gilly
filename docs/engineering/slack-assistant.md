@@ -26,7 +26,7 @@ The conversation key is `channel:thread_ts`, which maps to a Gilly Session (so f
 
 ## Setup
 
-Create the app from [`docs/slack-app-manifest.yaml`](../slack-app-manifest.yaml). It enables the assistant view, Socket Mode, the assistant events + `app_mention`, and scopes `assistant:write`, `chat:write`, `im:history`, `app_mentions:read`, `reactions:write`, `channels:history`, `groups:history`. (Adding scopes requires reinstalling the app.) Then:
+Create the app from [`docs/slack-app-manifest.yaml`](../slack-app-manifest.yaml). It enables the assistant view, Socket Mode, the assistant events + `app_mention`, and scopes for assistant replies, reactions, thread history, channel metadata, and user id lookup. (Adding scopes requires reinstalling the app.) Then:
 
 1. **App-Level Token** with `connections:write` → `SLACK_APP_TOKEN` (`xapp-…`).
 2. **Install to Workspace**, copy Bot User OAuth Token → `SLACK_BOT_TOKEN` (`xoxb-…`).

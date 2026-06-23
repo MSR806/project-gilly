@@ -126,6 +126,28 @@ async function threadContext(
   }
 }
 
+function logSlackReceived(
+  kind: "assistant_message" | "mention",
+  input: { sourceKey: string; userMessage: string },
+  message: SlackMessageFields,
+  extra: Record<string, unknown> = {},
+) {
+  console.log(
+    `[slack] received ${JSON.stringify({
+      kind,
+      userId: message.user ?? null,
+      teamId: message.team ?? null,
+      channel: message.channel,
+      channelType: message.channel_type ?? null,
+      ts: message.ts,
+      threadTs: message.thread_ts ?? message.ts,
+      sourceKey: input.sourceKey,
+      text: input.userMessage,
+      ...extra,
+    })}`,
+  );
+}
+
 /** Slack channel via the AI assistant surface + channel @mentions (Socket Mode). */
 export function createSlackChannel(deps: {
   engine: ReturnType<typeof createEngine>;
@@ -161,7 +183,7 @@ export function createSlackChannel(deps: {
     userMessage: async ({ message, client, sayStream, say, setStatus }) => {
       const msg = message as SlackMessageFields;
       const input = assistantMessageToInput(msg, deps.agentId, deps.source);
-      console.log(`[slack] assistant message "${input.userMessage}" (${input.sourceKey})`);
+      logSlackReceived("assistant_message", input, msg);
       await react(client, msg.channel, msg.ts, REACTION.working);
 
       const events = deps.engine.stream(input);
@@ -254,10 +276,9 @@ export function createSlackChannel(deps: {
   // Channel mentions: delta thread context, task_card + streamed reply, queued ⏳ → 👀 → ✅.
   app.event("app_mention", async ({ event, client, context }) => {
     const ev = event as SlackMessageFields;
-    const user = (event as { user?: string }).user;
     const base = mentionEventToInput(ev, deps.agentId, deps.source);
     const threadTs = ev.thread_ts ?? ev.ts;
-    console.log(`[slack] mention "${base.userMessage}" (${base.sourceKey})`);
+    logSlackReceived("mention", base, ev, { contextTeamId: context.teamId ?? null });
 
     // Inside a thread: only what's new since our last turn (full thread on the first).
     const transcript = ev.thread_ts
@@ -273,7 +294,7 @@ export function createSlackChannel(deps: {
           channel: ev.channel,
           threadTs,
           teamId: context.teamId,
-          user,
+          user: ev.user,
           refs,
           events,
         }),

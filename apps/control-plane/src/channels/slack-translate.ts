@@ -6,6 +6,9 @@ export type SlackMessageFields = {
   ts: string;
   thread_ts?: string;
   text?: string;
+  user?: string;
+  team?: string;
+  channel_type?: string;
 };
 
 const sourceKeyOf = (m: SlackMessageFields) => `${m.channel}:${m.thread_ts ?? m.ts}`;
