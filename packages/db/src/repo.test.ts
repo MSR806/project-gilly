@@ -7,7 +7,6 @@ import {
   createRun,
   deleteAgent,
   dequeueAllFollowUps,
-  dequeueFollowUp,
   enqueueFollowUp,
   getAgent,
   getOrCreateSession,
@@ -79,16 +78,6 @@ test("one active run per session is observable", () => {
   expect(hasActiveRun(db, s.id)).toBe(true);
   completeRun(db, run.id, "done");
   expect(hasActiveRun(db, s.id)).toBe(false);
-});
-
-test("follow-ups dequeue FIFO", () => {
-  const db = freshDb();
-  const s = getOrCreateSession(db, seed);
-  enqueueFollowUp(db, s.id, "first");
-  enqueueFollowUp(db, s.id, "second");
-  expect(dequeueFollowUp(db, s.id)?.input).toBe("first");
-  expect(dequeueFollowUp(db, s.id)?.input).toBe("second");
-  expect(dequeueFollowUp(db, s.id)).toBeNull();
 });
 
 test("dequeueAllFollowUps drains the whole queue (FIFO) with refs and empties it", () => {

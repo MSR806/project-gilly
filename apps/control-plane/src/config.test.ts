@@ -2,10 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentConfig } from "@gilly/core";
 import { createDb, listAgents } from "@gilly/db";
-import type { SkillBundle } from "@gilly/harness-protocol";
-import { assertReferencesResolve, loadAgents, loadSkills, seedAgents } from "./config.ts";
+import { loadAgents, loadSkills, seedAgents } from "./config.ts";
 
 const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
 const agent = { id: "echo", name: "Echo", model: "claude-sonnet-4-5", systemPrompt: "Be terse." };
@@ -53,13 +51,3 @@ test("seedAgents imports config on an empty DB, then is a no-op", () => {
   expect(listAgents(db).map((a) => a.id)).toEqual(["echo"]);
 });
 
-test("assertReferencesResolve flags unknown skill references", () => {
-  const agents = new Map<string, AgentConfig>([
-    ["a", { ...agent, id: "a", skills: ["cut-release"] }],
-  ]);
-  const skills = new Map<string, SkillBundle>([
-    ["cut-release", { name: "cut-release", files: [] }],
-  ]);
-  expect(() => assertReferencesResolve(agents, skills)).not.toThrow();
-  expect(() => assertReferencesResolve(agents, new Map())).toThrow(/unknown skill/);
-});

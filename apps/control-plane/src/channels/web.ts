@@ -1,6 +1,6 @@
 import { AgentConfig } from "@gilly/core";
 import { createAgent, type Db, deleteAgent, getAgent, listAgents, updateAgent } from "@gilly/db";
-import type { createEngine } from "../engine.ts";
+import type { createEngine, MessageInput } from "../engine.ts";
 import type { SkillStore } from "../stores/skill-store.ts";
 import type { Channel } from "./channel.ts";
 
@@ -187,7 +187,7 @@ async function readSkillFields(
 /** POST /api/chat → Server-Sent Events of StreamEvents; reuses a conversation via id. */
 async function chat(
   req: Request,
-  engine: { stream: (input: ChatStreamInput) => AsyncIterable<unknown> },
+  engine: { stream: (input: MessageInput) => AsyncIterable<unknown> },
 ): Promise<Response> {
   let body: { agentId?: string; message?: string; conversationId?: string };
   try {
@@ -231,4 +231,3 @@ async function chat(
   });
 }
 
-type ChatStreamInput = { agentId: string; source: string; sourceKey: string; userMessage: string };

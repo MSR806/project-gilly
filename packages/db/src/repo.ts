@@ -139,19 +139,6 @@ export function enqueueFollowUp(db: Db, sessionId: string, input: string, ref?: 
     .run();
 }
 
-/** Pop the oldest queued follow-up for a session, or null if the queue is empty. */
-export function dequeueFollowUp(db: Db, sessionId: string): { id: string; input: string } | null {
-  const next = db
-    .select()
-    .from(followUps)
-    .where(eq(followUps.sessionId, sessionId))
-    .orderBy(asc(followUps.createdAt))
-    .get();
-  if (!next) return null;
-  db.delete(followUps).where(eq(followUps.id, next.id)).run();
-  return { id: next.id, input: next.input };
-}
-
 /** Drain *all* queued follow-ups for a session (FIFO order) and remove them. */
 export function dequeueAllFollowUps(
   db: Db,

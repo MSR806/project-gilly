@@ -31,8 +31,6 @@ export type MessageInput = {
   userMessage: string;
 };
 
-export type StreamInput = MessageInput;
-
 export type HandleInput = MessageInput & {
   /** Extra context prepended to the *primary* run only (e.g. a Slack thread transcript). */
   context?: string;
@@ -109,7 +107,7 @@ export function createEngine(deps: {
   }
 
   /** One run, request-scoped (web chat). No queue — concurrency is the caller's to serialize. */
-  async function* stream(input: StreamInput): AsyncIterable<StreamEvent> {
+  async function* stream(input: MessageInput): AsyncIterable<StreamEvent> {
     const agent = getAgent(input.agentId);
     if (!agent) {
       yield { type: "error", error: `Unknown agent: ${input.agentId}` };

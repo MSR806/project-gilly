@@ -57,17 +57,3 @@ export function seedAgents(db: Db, agentsDir: string): void {
   for (const agent of loadAgents(agentsDir).values()) createAgent(db, agent);
 }
 
-/**
- * Fail fast at boot if any agent references a skill that isn't registered — a typo should
- * never surface as a confusing mid-run error.
- */
-export function assertReferencesResolve(
-  agents: Map<string, AgentConfig>,
-  skills: Map<string, SkillBundle>,
-): void {
-  for (const agent of agents.values()) {
-    for (const name of agent.skills ?? [])
-      if (!skills.has(name))
-        throw new Error(`Agent "${agent.id}" references unknown skill "${name}"`);
-  }
-}
