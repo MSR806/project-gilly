@@ -1,0 +1,50 @@
+direction: down
+
+title: Connector Kinds — One Registry, Three Transports {
+  near: top-center
+  shape: text
+  style.font-size: 24
+  style.bold: true
+}
+
+agent: Agent {
+  verbs: "gateway_catalog + gateway_invoke\n(transport invisible)"
+}
+
+gw: Tooling Gateway {
+  registry: "Tool Registry\ngmail.* · amplitude.* · postgres.* · branch.*"
+  vault: "Credential Vault\n(provider, key)\nadmin-configured, shared"
+  registry -> vault: "resolve creds at invoke"
+}
+
+api: "API connector (we write tools)" {
+  ex: "gmail.ts / branch.ts / meta.ts\ndefineTool handlers → REST"
+}
+
+rmcp: "Remote MCP connector" {
+  ex: "amplitude\ngateway = MCP client\ntools discovered + indexed"
+}
+
+lmcp: "Local MCP connector (stdio)" {
+  ex: "postgres\nchild process, spawned lazily\ncreds injected as env"
+}
+
+backends: Backends {
+  rest: "REST APIs\n(Gmail, Branch, Meta)"
+  vendor: "Vendor MCP server\n(mcp.amplitude.com)"
+  proc: "npx mcp-server\n(gateway child process)"
+}
+
+agent -> gw.registry: "catalog / invoke"
+gw.registry -> api: dispatch
+gw.registry -> rmcp: dispatch
+gw.registry -> lmcp: dispatch
+api -> backends.rest: "HTTPS + creds header"
+rmcp -> backends.vendor: "MCP over HTTP + creds header"
+lmcp -> backends.proc: "stdio + creds env"
+
+note: "auth kind (none / api_key / oauth2) declared per connector; per-user access via grants, not creds" {
+  near: bottom-center
+  shape: text
+  style.italic: true
+}

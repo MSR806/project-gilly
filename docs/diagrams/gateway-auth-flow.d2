@@ -1,0 +1,45 @@
+shape: sequence_diagram
+
+title: OAuth Connect + Invoke (shared creds, per-user grants) {
+  near: top-center
+  shape: text
+  style.font-size: 24
+  style.bold: true
+}
+
+admin: Admin
+agent: Agent (user U)
+gw: Gateway
+vault: Vault
+google: Google
+
+connect: Admin connects once {
+  admin -> gw: "GET /oauth/gmail/start"
+  gw -> google: redirect to consent
+  google -> gw: "/oauth/gmail/callback?code=…"
+  gw -> google: exchange code
+  google -> gw: "access + refresh + expiresAt"
+  gw -> vault: "store token JSON (gmail)"
+}
+
+invoke: Every invoke after that {
+  agent -> gw: "invoke(gmail.search_threads) [run token]"
+  gw -> gw: "grants check: may user U call gmail.*?"
+  gw -> vault: "lookup (gmail)"
+  vault -> gw: token set
+  gw -> google: "refresh if expired, persist"
+  gw -> google: "Gmail API call"
+  google -> gw: results
+  gw -> agent: "results + tool_calls row"
+}
+
+denied: No grant {
+  agent -> gw: "invoke(gmail.search_threads) [user X, no grant]"
+  gw -> agent: "{ error: forbidden } — tool never in X's catalog"
+}
+
+missing: Provider not connected {
+  agent -> gw: "invoke(gmail.search_threads)"
+  gw -> vault: "lookup (gmail) → none"
+  gw -> agent: "{ error: not_connected } — ask admin to connect"
+}

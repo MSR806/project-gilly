@@ -1,0 +1,43 @@
+shape: sequence_diagram
+
+title: One Run End to End — the CAC example {
+  near: top-center
+  shape: text
+  style.font-size: 24
+  style.bold: true
+}
+
+user: User (Slack)
+cp: Control Plane
+harness: Harness (agent loop)
+ws: Sandbox (workspace)
+gw: Gateway
+prov: Providers (Meta / Branch)
+
+user -> cp: "@gilly CAC for malayalam campaign?"
+cp -> cp: "resolve agent + session, create run"
+cp -> cp: "upsert user from Slack, mint token { user, agent, grants }"
+cp -> harness: "InvocationRequest + gatewayToken"
+harness -> harness: "wire MCP server + env vars"
+
+harness -> gw: "gateway_catalog(\"ad spend installs\")"
+gw -> gw: "filter by grants"
+gw -> harness: "meta.insights, branch.query + schemas"
+
+harness -> ws: "write cac.ts, bun run cac.ts"
+
+ws -> gw: "invoke(meta.insights, {...})"
+gw -> gw: "grants check → vault creds"
+gw -> prov: "Meta API call"
+prov -> gw: "spend data (large)"
+gw -> gw: "tool_calls row (runId)"
+gw -> ws: "result JSON"
+
+ws -> gw: "invoke(branch.query, {...})"
+gw -> prov: "Branch API call"
+prov -> gw: "installs data (large)"
+gw -> ws: "result JSON"
+
+ws -> harness: "stdout: {\"cpi\": 5} — summary only"
+harness -> cp: "stream events → final answer"
+cp -> user: "CPI is ₹5 (spend 42k / 8.4k installs)"

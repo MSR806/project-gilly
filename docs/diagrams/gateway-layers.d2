@@ -1,0 +1,56 @@
+direction: down
+
+title: Tooling Gateway — Big Picture {
+  near: top-center
+  shape: text
+  style.font-size: 24
+  style.bold: true
+}
+
+channels: Channels {
+  slack: Slack
+  web: Web
+}
+
+cp: Control Plane {
+  engine: "Engine (sessions, runs, follow-ups)"
+  token: "Mints run-scoped gateway token\n{ userId, agentId, grants }"
+}
+
+harness: Harness (Claude Agent SDK) {
+  mcp: "MCP tools:\ngateway_catalog + gateway_invoke"
+  env: "env: GILLY_GATEWAY_URL / TOKEN"
+}
+
+runtime: Runtime Sandbox (workspace) {
+  script: "agent-written script\ncac.ts → bun run"
+  builtin: "Read / Write / Bash"
+}
+
+gw: Tooling Gateway (apps/gateway) {
+  registry: "Tool Registry\ndefineTool(name, zod input, creds, handler)"
+  access: "Access Resolver\nagent connectors ∩ user grants"
+  vault: "Credential Vault\n(provider, key) encrypted, admin-configured"
+  trace: "Tracing\ntool_calls keyed by runId"
+}
+
+providers: Providers {
+  branch: "Branch (REST)"
+  meta: "Meta (REST)"
+  amplitude: "Amplitude (upstream MCP)"
+  internal: "Internal services"
+}
+
+channels -> cp: MessageInput
+cp -> harness: "InvocationRequest\n(+ gatewayToken)"
+harness -> runtime: runs inside
+harness.mcp -> gw: "direct lane (MCP)"
+runtime.script -> gw: "script lane (HTTP + token)"
+gw.access -> gw.vault: "creds injected server-side"
+gw -> providers: "handler calls"
+
+note: "One door: every external call passes the gateway; creds never enter the sandbox" {
+  near: bottom-center
+  shape: text
+  style.italic: true
+}

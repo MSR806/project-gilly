@@ -1,0 +1,42 @@
+direction: right
+
+title: Two Lanes — How Agents Call Tools {
+  near: top-center
+  shape: text
+  style.font-size: 24
+  style.bold: true
+}
+
+anti: "The anti-pattern (what we avoid)" {
+  style.stroke-dash: 3
+  model1: Model context
+  model1.label: "Model context carries:\n50 tool schemas +\nraw payloads copied\nbetween every call"
+  a: "Tool A (Amplitude)"
+  b: "Tool B (Branch)"
+  a -> model1: "huge payload in"
+  model1 -> b: "model re-emits payload"
+}
+
+direct: "Lane 1 — Direct (one small lookup)" {
+  agent: Agent
+  gw: Gateway
+  agent -> gw: "gateway_invoke(branch.query)"
+  gw -> agent: "small JSON result"
+}
+
+script: "Lane 2 — Script (chained / heavy)" {
+  agent: Agent
+  ws: "Sandbox: cac.ts"
+  gw: Gateway
+  agent -> ws: "writes script, bun run"
+  ws -> gw: "invoke(meta.insights)"
+  ws -> gw: "invoke(branch.query)"
+  ws -> ws: "raw payloads stay here"
+  ws -> agent: "stdout: summary JSON only"
+}
+
+skill: "The skill teaches the choice: one small call → Lane 1; chaining or large data → Lane 2" {
+  near: bottom-center
+  shape: text
+  style.italic: true
+}
