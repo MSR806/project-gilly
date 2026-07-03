@@ -1,12 +1,20 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { type Options, query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import {
+  createSdkMcpServer,
+  type McpServerConfig,
+  type Options,
+  query,
+  type SDKMessage,
+  tool,
+} from "@anthropic-ai/claude-agent-sdk";
 import type {
   InvocationRequest,
   InvocationResult,
   SkillBundle,
   StreamEvent,
 } from "@gilly/harness-protocol";
+import { z } from "zod";
 
 // Anchored to the repo root (this file lives at apps/harness-claude/src/) so dev works
 // regardless of cwd; relative WORKSPACES_DIR anchors here, absolute values pass through.
@@ -33,6 +41,79 @@ export function expandTools(gillyTools: string[]): string[] {
   return [...new Set(gillyTools.flatMap((t) => TOOL_MAP[t] ?? [t]))];
 }
 
+/** POST JSON to `${url}${path}` with a Bearer token. Returns the HTTP ok flag + parsed body. */
+export async function gatewayPost(
+  url: string,
+  token: string,
+  path: string,
+  body: unknown,
+  fetchFn = fetch,
+): Promise<{ ok: boolean; data: unknown }> {
+  const res = await fetchFn(`${url}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  return { ok: res.ok, data: await res.json() };
+}
+
+/** Wrap a JSON-serializable value as an MCP tool text result. */
+const asContent = (value: unknown, isError = false) => ({
+  content: [{ type: "text" as const, text: JSON.stringify(value) }],
+  ...(isError ? { isError: true } : {}),
+});
+
+/**
+ * Expose the tooling gateway as an in-process SDK MCP server named "gateway" with exactly two
+ * tools: `gateway_catalog` (discover tools) and `gateway_invoke` (call one). Pure — `fetchFn` is
+ * injectable for tests. HTTP failures / `{ error }` bodies come back as `isError` results so the
+ * model sees a closed error set instead of a thrown exception.
+ */
+export function makeGatewayMcpServer(
+  gateway: { url: string; token: string },
+  fetchFn = fetch,
+): McpServerConfig {
+  const gatewayCatalog = tool(
+    "gateway_catalog",
+    "List the tools available through the gateway, optionally filtered by a search query.",
+    { query: z.string().optional() },
+    async ({ query: q }) => {
+      const { data } = await gatewayPost(
+        gateway.url,
+        gateway.token,
+        "/catalog",
+        { query: q },
+        fetchFn,
+      );
+      return asContent(data);
+    },
+  );
+
+  const gatewayInvoke = tool(
+    "gateway_invoke",
+    "Invoke a gateway tool by name with an input object.",
+    { tool: z.string(), input: z.record(z.string(), z.unknown()).optional() },
+    async ({ tool: name, input }) => {
+      const { ok, data } = await gatewayPost(
+        gateway.url,
+        gateway.token,
+        "/invoke",
+        { tool: name, input },
+        fetchFn,
+      );
+      const error = (data as { error?: unknown } | null)?.error;
+      if (!ok || error !== undefined) return asContent({ error: error ?? data }, true);
+      return asContent(data);
+    },
+  );
+
+  return createSdkMcpServer({
+    name: "gateway",
+    version: "0.0.0",
+    tools: [gatewayCatalog, gatewayInvoke],
+  });
+}
+
 /**
  * Assemble the SDK options shared by the streaming and non-streaming paths so they stay in
  * sync. Pure (no I/O). An "agentic" agent — one with built-in tools or skills — gets Claude
@@ -44,17 +125,35 @@ export function buildOptions(req: InvocationRequest, streaming: boolean): Option
   const fsTools = expandTools(req.agent.tools ?? []);
   const skills = req.skills ?? [];
   const hasSkills = skills.length > 0;
-  const agentic = fsTools.length > 0 || hasSkills;
+  const hasGateway = !!req.gateway;
+  const agentic = fsTools.length > 0 || hasSkills || hasGateway;
   // Skills load from <cwd>/.claude/skills via the "project" setting source; anything that
-  // touches the filesystem also needs a place to act.
+  // touches the filesystem also needs a place to act. The gateway needs no workspace of its own.
   const needsWorkspace = fsTools.length > 0 || hasSkills;
 
-  // Tools the model may call: built-in tools plus the Skill tool (when skills are attached).
-  const allowedTools = [...fsTools, ...(hasSkills ? ["Skill"] : [])];
+  // Tools the model may call: built-in tools, the Skill tool (when skills are attached), and the
+  // two gateway MCP tools (when a gateway is configured).
+  const allowedTools = [
+    ...fsTools,
+    ...(hasSkills ? ["Skill"] : []),
+    ...(hasGateway ? ["mcp__gateway__gateway_catalog", "mcp__gateway__gateway_invoke"] : []),
+  ];
 
   return {
     model: req.agent.model,
     allowedTools,
+    ...(req.gateway ? { mcpServers: { gateway: makeGatewayMcpServer(req.gateway) } } : {}),
+    // The SDK REPLACES the subprocess env entirely, so spread process.env to keep
+    // ANTHROPIC_API_KEY/PATH/HOME; then layer in the gateway coords for the script lane.
+    ...(req.gateway
+      ? {
+          env: {
+            ...process.env,
+            GILLY_GATEWAY_URL: req.gateway.url,
+            GILLY_GATEWAY_TOKEN: req.gateway.token,
+          },
+        }
+      : {}),
     // Agentic agents get the preset's tool-use guidance plus their role; chat-only agents get
     // the plain role prompt (the preset would pull in unwanted coding scaffolding).
     systemPrompt: agentic

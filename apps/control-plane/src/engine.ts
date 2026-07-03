@@ -1,14 +1,17 @@
 import type { AgentConfig } from "@gilly/core";
 import {
   completeRun,
+  createGatewayToken,
   createRun,
   type Db,
+  deleteGatewayTokensForRun,
   dequeueAllFollowUps,
   enqueueFollowUp,
   failRun,
   getOrCreateSession,
   getSessionById,
   hasActiveRun,
+  listGrants,
   setHarnessSession,
 } from "@gilly/db";
 import type { SkillBundle } from "@gilly/harness-protocol";
@@ -29,6 +32,8 @@ export type MessageInput = {
   source: string;
   sourceKey: string;
   userMessage: string;
+  /** Resolved internal user id (from the channel's identity upsert); mints a gateway token. */
+  userId?: string;
 };
 
 export type HandleInput = MessageInput & {
@@ -55,9 +60,20 @@ export function createEngine(deps: {
   getAgent: (id: string) => AgentConfig | undefined;
   /** Resolve a skill bundle by name (the SkillStore seam); defaults to "no skills". */
   getSkill?: (name: string) => SkillBundle | undefined;
+  /** Tooling gateway base URL; when set, runs with matching grants get a per-run gateway token. */
+  gatewayUrl?: string;
 }) {
-  const { db, runtime, getAgent } = deps;
+  const { db, runtime, getAgent, gatewayUrl } = deps;
   const getSkill = deps.getSkill ?? (() => undefined);
+
+  /** Best-effort cleanup of a run's gateway tokens; never breaks the run. */
+  function cleanupGatewayTokens(runId: string) {
+    try {
+      deleteGatewayTokensForRun(db, runId);
+    } catch (e) {
+      console.warn(`[engine] gateway token cleanup failed for run ${runId}:`, String(e));
+    }
+  }
 
   /** Gather the skill bundles an agent attaches. Throws on an unknown name (caught by runFrom). */
   function skillsFor(agent: AgentConfig): SkillBundle[] {
@@ -74,12 +90,33 @@ export function createEngine(deps: {
     sessionId: string,
     agent: AgentConfig,
     message: string,
+    userId?: string,
   ): AsyncGenerator<StreamEvent> {
     let accumulated = "";
     try {
       // Resolve instructions (skills) before invoking. May throw on a misconfigured agent
       // (unknown skill name) — caught below and recorded as a failed run.
       const skillBundles = skillsFor(agent);
+
+      // effective grants = user's grant patterns whose connector prefix is in the agent's connectors
+      const conns = new Set(agent.connectors ?? []);
+      const grants = userId
+        ? listGrants(db, userId)
+            .map((g) => g.toolPattern)
+            .filter((p) => conns.has(p.split(".")[0] ?? ""))
+        : [];
+      let gateway: { url: string; token: string } | undefined;
+      if (gatewayUrl && userId && grants.length > 0) {
+        const token = createGatewayToken(db, {
+          runId,
+          userId,
+          agentId: agent.id,
+          grants,
+          ttlMs: 60 * 60 * 1000,
+        });
+        gateway = { url: gatewayUrl, token };
+      }
+
       const events = runtime.invokeStream({
         agent,
         userMessage: message,
@@ -87,6 +124,7 @@ export function createEngine(deps: {
         // Stable per-Gilly-session workspace, so follow-ups see files earlier runs made.
         workspace: { provider: "local", handle: sessionId },
         ...(skillBundles.length ? { skills: skillBundles } : {}),
+        ...(gateway ? { gateway } : {}),
       });
       for await (const event of events) {
         if (event.type === "token") {
@@ -94,14 +132,17 @@ export function createEngine(deps: {
         } else if (event.type === "done") {
           if (event.harnessSessionId) setHarnessSession(db, sessionId, event.harnessSessionId);
           completeRun(db, runId, event.finalText || accumulated);
+          cleanupGatewayTokens(runId);
         } else if (event.type === "error") {
           failRun(db, runId, event.error);
+          cleanupGatewayTokens(runId);
         }
         // `tool` events are progress only — passed through to the channel, not persisted.
         yield event;
       }
     } catch (e) {
       failRun(db, runId, String(e));
+      cleanupGatewayTokens(runId);
       yield { type: "error", error: String(e) };
     }
   }
@@ -119,7 +160,7 @@ export function createEngine(deps: {
       sourceKey: input.sourceKey,
     });
     const run = createRun(db, session.id, input.userMessage);
-    yield* runFrom(run.id, session.id, agent, input.userMessage);
+    yield* runFrom(run.id, session.id, agent, input.userMessage, input.userId);
   }
 
   /**
@@ -158,10 +199,11 @@ export function createEngine(deps: {
         await input.run({
           refs,
           message: raw,
-          events: runFrom(run.id, session.id, agent, composed),
+          events: runFrom(run.id, session.id, agent, composed, input.userId),
         });
       } catch (e) {
         failRun(db, run.id, String(e)); // channel threw before finalizing — don't leave it active
+        cleanupGatewayTokens(run.id);
         throw e;
       }
 

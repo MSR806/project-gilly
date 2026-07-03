@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,7 +17,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <header className="app-header">
-          <span className="app-header__brand">Gilly</span>
+          <Link href="/" className="app-header__brand">
+            Gilly
+          </Link>
+          <nav className="app-header__nav">
+            <Link href="/">Agents</Link>
+            <Link href="/connectors">Connectors</Link>
+            <Link href="/users">Users</Link>
+          </nav>
         </header>
         <main className="app-main">{children}</main>
       </body>

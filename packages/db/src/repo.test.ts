@@ -2,17 +2,26 @@ import { expect, test } from "bun:test";
 import type { AgentConfig } from "@gilly/core";
 import { createDb } from "./client.ts";
 import {
+  addGrant,
   completeRun,
   createAgent,
+  createGatewayToken,
   createRun,
   deleteAgent,
+  deleteGatewayTokensForRun,
+  deleteGrant,
   dequeueAllFollowUps,
   enqueueFollowUp,
   getAgent,
+  getCredential,
+  getGatewayToken,
   getOrCreateSession,
   hasActiveRun,
   listAgents,
+  listGrants,
+  setCredential,
   updateAgent,
+  upsertUserBySlackId,
 } from "./repo.ts";
 
 const freshDb = () => createDb(":memory:");
@@ -90,4 +99,65 @@ test("dequeueAllFollowUps drains the whole queue (FIFO) with refs and empties it
     { input: "second", ref: "ts2" },
   ]);
   expect(dequeueAllFollowUps(db, s.id)).toEqual([]);
+});
+
+test("upsertUserBySlackId inserts then updates the same row on second call", () => {
+  const db = freshDb();
+  const first = upsertUserBySlackId(db, { slackUserId: "U1", name: "Ada" });
+  const second = upsertUserBySlackId(db, { slackUserId: "U1", name: "Ada Lovelace" });
+  expect(second.id).toBe(first.id);
+  expect(second.name).toBe("Ada Lovelace");
+  expect(second.isAdmin).toBe(false);
+});
+
+test("addGrant/listGrants/deleteGrant round-trip", () => {
+  const db = freshDb();
+  const user = upsertUserBySlackId(db, { slackUserId: "U1", name: "Ada" });
+  const g1 = addGrant(db, user.id, "gmail.*");
+  addGrant(db, user.id, "branch.query");
+  expect(
+    listGrants(db, user.id)
+      .map((g) => g.toolPattern)
+      .sort(),
+  ).toEqual(["branch.query", "gmail.*"]);
+  deleteGrant(db, g1.id);
+  expect(listGrants(db, user.id).map((g) => g.toolPattern)).toEqual(["branch.query"]);
+});
+
+test("setCredential upserts on (provider, key); getCredential returns rows", () => {
+  const db = freshDb();
+  setCredential(db, "gmail", "token", "v1");
+  setCredential(db, "gmail", "token", "v2");
+  setCredential(db, "gmail", "refresh", "r1");
+  expect(getCredential(db, "gmail")).toEqual(
+    expect.arrayContaining([
+      { key: "token", value: "v2" },
+      { key: "refresh", value: "r1" },
+    ]),
+  );
+  expect(getCredential(db, "gmail")).toHaveLength(2);
+});
+
+test("createGatewayToken → getGatewayToken → deleteGatewayTokensForRun", () => {
+  const db = freshDb();
+  const token = createGatewayToken(db, {
+    runId: "run1",
+    userId: "u1",
+    agentId: "a1",
+    grants: ["gmail.*", "branch.query"],
+    ttlMs: 60_000,
+  });
+  const row = getGatewayToken(db, token);
+  expect(row?.runId).toBe("run1");
+  expect(row?.grants).toEqual(["gmail.*", "branch.query"]);
+  deleteGatewayTokensForRun(db, "run1");
+  expect(getGatewayToken(db, token)).toBeUndefined();
+});
+
+test("agent with connectors round-trips through get/update", () => {
+  const db = freshDb();
+  createAgent(db, { ...agentCfg, connectors: ["branch"] });
+  expect(getAgent(db, "coder")?.connectors).toEqual(["branch"]);
+  updateAgent(db, "coder", { ...agentCfg, connectors: ["branch", "gmail"] });
+  expect(getAgent(db, "coder")?.connectors).toEqual(["branch", "gmail"]);
 });

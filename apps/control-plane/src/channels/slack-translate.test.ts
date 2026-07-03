@@ -35,6 +35,15 @@ test("mention: sourceKey uses thread_ts when in a thread, else ts", () => {
   expect(mentionEventToInput({ channel: "C1", ts: "2.0" }, "echo").sourceKey).toBe("C1:2.0");
 });
 
+test("userId passes through both translators when resolved", () => {
+  expect(
+    assistantMessageToInput({ channel: "C1", ts: "1.0" }, "echo", "slack", "u-42").userId,
+  ).toBe("u-42");
+  expect(mentionEventToInput({ channel: "C1", ts: "1.0" }, "echo", "slack", "u-42").userId).toBe(
+    "u-42",
+  );
+});
+
 test("missing text yields an empty message", () => {
   expect(assistantMessageToInput({ channel: "C1", ts: "1.0" }, "echo").userMessage).toBe("");
   expect(mentionEventToInput({ channel: "C1", ts: "1.0" }, "echo").userMessage).toBe("");

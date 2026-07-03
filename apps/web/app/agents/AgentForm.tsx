@@ -29,7 +29,10 @@ export type AgentValues = {
   systemPrompt: string;
   tools?: string[];
   skills?: string[];
+  connectors?: string[];
 };
+
+type ConnectorInfo = { name: string; auth: string; connected: boolean };
 
 const EMPTY: AgentValues = { id: "", name: "", model: "claude-sonnet-4-5", systemPrompt: "" };
 
@@ -57,6 +60,7 @@ export default function AgentForm({
   const router = useRouter();
   const [values, setValues] = useState<AgentValues>(initial ?? EMPTY);
   const [allSkills, setAllSkills] = useState<{ name: string; description: string }[]>([]);
+  const [allConnectors, setAllConnectors] = useState<ConnectorInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -65,6 +69,10 @@ export default function AgentForm({
       .then((r) => r.json() as Promise<{ name: string; description: string }[]>)
       .then(setAllSkills)
       .catch(() => setAllSkills([]));
+    fetch(`${API_BASE}/connectors`)
+      .then((r) => r.json() as Promise<{ connectors: ConnectorInfo[] }>)
+      .then((d) => setAllConnectors(d.connectors ?? []))
+      .catch(() => setAllConnectors([]));
   }, []);
 
   const set = <K extends keyof AgentValues>(key: K, value: AgentValues[K]) =>
@@ -85,6 +93,7 @@ export default function AgentForm({
       id,
       tools: values.tools?.length ? values.tools : undefined,
       skills: values.skills?.length ? values.skills : undefined,
+      connectors: values.connectors?.length ? values.connectors : undefined,
     };
     const url = mode === "create" ? `${API_BASE}/agents` : `${API_BASE}/agents/${id}`;
     try {
@@ -169,6 +178,34 @@ export default function AgentForm({
             placeholder="No skills attached"
           />
         )}
+      </div>
+
+      <div className="field">
+        <span className="field__label">Connectors</span>
+        {allConnectors.length === 0 ? (
+          <p className="field__hint">
+            No connectors available — configure one on the <a href="/connectors">Connectors</a> page
+            first.
+          </p>
+        ) : (
+          <MultiSelect
+            groups={[
+              {
+                label: "Connectors",
+                options: allConnectors.map((c) => ({
+                  value: c.name,
+                  description: `${c.connected ? "connected" : "not connected"} · auth: ${c.auth}`,
+                })),
+              },
+            ]}
+            selected={values.connectors ?? []}
+            onChange={(connectors) => set("connectors", connectors)}
+            placeholder="No connectors — agent can't call external tools"
+          />
+        )}
+        <span className="field__hint">
+          What this agent may reach. A user still needs a matching grant to call a tool.
+        </span>
       </div>
 
       {error ? <p className="state state--error">{error}</p> : null}

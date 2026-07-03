@@ -1,0 +1,21 @@
+{
+  "name": "@gilly/gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts"
+  },
+  "dependencies": {
+    "@gilly/core": "workspace:*",
+    "@gilly/db": "workspace:*",
+    "@gilly/gateway-kit": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "latest"
+  }
+}

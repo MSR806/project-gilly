@@ -13,7 +13,11 @@
     "format": "biome format --write .",
     "dev:harness": "bun run --filter '@gilly/harness-claude' dev",
     "dev:control-plane": "bun run --filter '@gilly/control-plane' dev",
+    "dev:gateway": "bun run --filter '@gilly/gateway' dev",
     "dev:web": "bun run --filter '@gilly/web' dev"
+  },
+  "dependencies": {
+    "@gilly/gateway-client": "workspace:*"
   },
   "devDependencies": {
     "@biomejs/biome": "latest",

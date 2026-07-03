@@ -19,6 +19,8 @@ const SKILLS_DIR = resolve(repoRoot, process.env.SKILLS_DIR ?? "config/skills");
 const DATABASE_PATH = resolve(repoRoot, process.env.DATABASE_PATH ?? "data/gilly.db");
 const HARNESS_URL = process.env.HARNESS_URL ?? "http://localhost:8080";
 const WEB_PORT = Number(process.env.WEB_PORT ?? 4000);
+const GILLY_GATEWAY_URL = process.env.GILLY_GATEWAY_URL;
+const GILLY_ADMIN_TOKEN = process.env.GILLY_ADMIN_TOKEN;
 const { SLACK_BOT_TOKEN, SLACK_APP_TOKEN } = process.env;
 
 mkdirSync(dirname(DATABASE_PATH), { recursive: true });
@@ -36,13 +38,29 @@ const engine = createEngine({
   runtime,
   getAgent: (id) => getAgent(db, id),
   getSkill: (name) => skillStore.get(name),
+  gatewayUrl: GILLY_GATEWAY_URL,
 });
 
 // Web is always on (the UI + management API). Slack is optional — only if configured.
-const channels: Channel[] = [createWebChannel({ engine, db, skillStore, port: WEB_PORT })];
+const channels: Channel[] = [
+  createWebChannel({
+    engine,
+    db,
+    skillStore,
+    port: WEB_PORT,
+    gatewayUrl: GILLY_GATEWAY_URL,
+    adminToken: GILLY_ADMIN_TOKEN,
+  }),
+];
 if (SLACK_BOT_TOKEN && SLACK_APP_TOKEN) {
   channels.push(
-    createSlackChannel({ engine, botToken: SLACK_BOT_TOKEN, appToken: SLACK_APP_TOKEN, agentId }),
+    createSlackChannel({
+      engine,
+      db,
+      botToken: SLACK_BOT_TOKEN,
+      appToken: SLACK_APP_TOKEN,
+      agentId,
+    }),
   );
 } else {
   console.warn("SLACK_BOT_TOKEN/SLACK_APP_TOKEN not set — Slack channel disabled (web only)");

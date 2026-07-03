@@ -1,5 +1,17 @@
 import { AgentConfig } from "@gilly/core";
-import { createAgent, type Db, deleteAgent, getAgent, listAgents, updateAgent } from "@gilly/db";
+import {
+  addGrant,
+  createAgent,
+  type Db,
+  deleteAgent,
+  deleteGrant,
+  getAgent,
+  listAgents,
+  listGrants,
+  listUsers,
+  updateAgent,
+} from "@gilly/db";
+import { z } from "zod";
 import type { createEngine, MessageInput } from "../engine.ts";
 import type { SkillStore } from "../stores/skill-store.ts";
 import type { Channel } from "./channel.ts";
@@ -32,17 +44,20 @@ function errorResponse(e: unknown): Response {
   return json({ error: message }, status);
 }
 
-/**
- * Web channel + the control-plane management API over `Bun.serve`: agent CRUD (DB-backed), skill
- * CRUD (the {@link SkillStore} seam), and chat (SSE). The UI talks to these endpoints.
- */
-export function createWebChannel(deps: {
+type WebDeps = {
   engine: ReturnType<typeof createEngine>;
   db: Db;
   skillStore: SkillStore;
   port: number;
-}): Channel {
-  const { db, skillStore } = deps;
+  /** Tooling gateway base URL; proxied by GET /api/connectors so the UI can list connectors. */
+  gatewayUrl?: string;
+  /** Gateway admin token; injected server-side so the browser never handles it. */
+  adminToken?: string;
+};
+
+/** The web management API as a port-free `fetch` handler, so tests can drive it directly. */
+export function createWebHandler(deps: WebDeps): (req: Request) => Promise<Response> {
+  const { db, skillStore, gatewayUrl, adminToken } = deps;
 
   async function fetch(req: Request): Promise<Response> {
     const { pathname } = new URL(req.url);
@@ -87,9 +102,99 @@ export function createWebChannel(deps: {
       }
     }
 
+    // --- Users & grants (admin; unauthenticated for now — writes are gated on the gateway) ---
+    if (method === "GET" && pathname === "/api/users") {
+      return json(
+        listUsers(db).map(({ id, slackUserId, name, isAdmin }) => ({
+          id,
+          slackUserId,
+          name,
+          isAdmin,
+        })),
+      );
+    }
+    const grantsUserId = pathParam(pathname, "/api/users/", "/grants");
+    if (grantsUserId && method === "GET") return json(listGrants(db, grantsUserId));
+    if (method === "POST" && pathname === "/api/grants") return createGrantRoute(req);
+    const grantId = pathParam(pathname, "/api/grants/");
+    if (grantId && method === "DELETE") {
+      deleteGrant(db, grantId);
+      return json({ ok: true });
+    }
+
+    // Proxy the gateway's connector catalog so the UI can populate an agent's connectors list.
+    if (method === "GET" && pathname === "/api/connectors") {
+      if (!gatewayUrl) return json({ connectors: [] });
+      try {
+        const res = await globalThis.fetch(`${gatewayUrl}/connectors`);
+        return json(await res.json());
+      } catch {
+        return json({ connectors: [] });
+      }
+    }
+
+    // Admin connector auth. The browser calls these WITHOUT any secret; we inject x-admin-token
+    // when calling the gateway so the token never reaches the client.
+    const credProvider = pathParam(pathname, "/api/connectors/", "/credentials");
+    if (method === "PUT" && credProvider) return saveCredential(req, credProvider);
+    const connectProvider = pathParam(pathname, "/api/connectors/", "/connect");
+    if (method === "GET" && connectProvider) return startConnect(connectProvider);
+
     if (method === "POST" && pathname === "/api/chat") return chat(req, deps.engine);
 
     return json({ error: "not found" }, 404);
+  }
+
+  /** PUT /api/connectors/:provider/credentials — inject x-admin-token, forward the {key,value} body. */
+  async function saveCredential(req: Request, provider: string): Promise<Response> {
+    if (!gatewayUrl || !adminToken) return json({ error: "gateway not configured" }, 503);
+    try {
+      const res = await globalThis.fetch(`${gatewayUrl}/admin/credentials/${provider}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", "x-admin-token": adminToken },
+        body: await req.text(),
+      });
+      return json(await res.json(), res.status);
+    } catch (e) {
+      return errorResponse(e);
+    }
+  }
+
+  /**
+   * GET /api/connectors/:provider/connect — start the OAuth flow. We call the gateway with the admin
+   * token; a 302 carries the Atlassian consent URL, which we relay to the browser so it navigates
+   * there. A 200 means already-connected → bounce back to the connectors page.
+   */
+  async function startConnect(provider: string): Promise<Response> {
+    if (!gatewayUrl || !adminToken) return json({ error: "gateway not configured" }, 503);
+    try {
+      const res = await globalThis.fetch(`${gatewayUrl}/oauth/${provider}/start`, {
+        redirect: "manual",
+        headers: { "x-admin-token": adminToken },
+      });
+      const location =
+        res.status === 302
+          ? res.headers.get("location")
+          : `/connectors?connected=${encodeURIComponent(provider)}`;
+      if (!location) return json({ error: "gateway returned no redirect" }, 502);
+      return new Response(null, { status: 302, headers: { location, ...cors } });
+    } catch (e) {
+      return errorResponse(e);
+    }
+  }
+
+  async function createGrantRoute(req: Request): Promise<Response> {
+    const parsed = await readJson(req);
+    if ("error" in parsed) return parsed.error;
+    const body = z
+      .object({ userId: z.string().min(1), toolPattern: z.string().min(1) })
+      .safeParse(parsed.body);
+    if (!body.success) return json({ error: body.error.message }, 400);
+    try {
+      return json(addGrant(db, body.data.userId, body.data.toolPattern), 201);
+    } catch (e) {
+      return errorResponse(e);
+    }
   }
 
   async function createAgentRoute(req: Request): Promise<Response> {
@@ -147,6 +252,15 @@ export function createWebChannel(deps: {
     return (cfg.skills ?? []).filter((name) => !skillStore.get(name));
   }
 
+  return fetch;
+}
+
+/**
+ * Web channel + the control-plane management API over `Bun.serve`: agent CRUD (DB-backed), skill
+ * CRUD (the {@link SkillStore} seam), and chat (SSE). The UI talks to these endpoints.
+ */
+export function createWebChannel(deps: WebDeps): Channel {
+  const fetch = createWebHandler(deps);
   return {
     name: "web",
     start: async () => {
@@ -156,10 +270,13 @@ export function createWebChannel(deps: {
   };
 }
 
-/** Return the trailing segment if `pathname` is `prefix<segment>` with no further slashes. */
-function pathParam(pathname: string, prefix: string): string | undefined {
-  if (!pathname.startsWith(prefix)) return undefined;
-  const rest = pathname.slice(prefix.length);
+/**
+ * Return the segment if `pathname` is `prefix<segment>suffix` (suffix defaults to ""), where
+ * `<segment>` has no slashes. `pathParam(p, "/api/connectors/", "/credentials")` → the provider.
+ */
+function pathParam(pathname: string, prefix: string, suffix = ""): string | undefined {
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) return undefined;
+  const rest = pathname.slice(prefix.length, pathname.length - suffix.length);
   return rest && !rest.includes("/") ? decodeURIComponent(rest) : undefined;
 }
 
@@ -230,4 +347,3 @@ async function chat(
     },
   });
 }
-

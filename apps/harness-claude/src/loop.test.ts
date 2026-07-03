@@ -7,6 +7,8 @@ import type { InvocationRequest } from "@gilly/harness-protocol";
 import {
   buildOptions,
   expandTools,
+  gatewayPost,
+  makeGatewayMcpServer,
   materializeSkills,
   reduceSdkStream,
   runAgentLoop,
@@ -173,6 +175,53 @@ test("summarizeToolUse picks the salient arg and truncates", () => {
   expect(summarizeToolUse({ description: "review the PR" })).toBe("review the PR");
   expect(summarizeToolUse({})).toBe("");
   expect(summarizeToolUse({ command: "x".repeat(200) }).length).toBe(118);
+});
+
+test("gatewayPost posts to url+path with a Bearer header and returns ok + parsed body", async () => {
+  let seen: { url: string; init: RequestInit } | undefined;
+  const fakeFetch = (async (url: string, init: RequestInit) => {
+    seen = { url, init };
+    return new Response(JSON.stringify({ tools: ["a"] }), { status: 200 });
+  }) as unknown as typeof fetch;
+
+  const out = await gatewayPost("http://gw", "tok", "/catalog", { query: "x" }, fakeFetch);
+  expect(out).toEqual({ ok: true, data: { tools: ["a"] } });
+  expect(seen?.url).toBe("http://gw/catalog");
+  const headers = seen?.init.headers as Record<string, string>;
+  expect(headers.authorization).toBe("Bearer tok");
+  expect(seen?.init.body).toBe(JSON.stringify({ query: "x" }));
+});
+
+test("makeGatewayMcpServer builds an sdk server named `gateway`", () => {
+  const server = makeGatewayMcpServer({ url: "http://gw", token: "tok" }) as {
+    type: string;
+    name: string;
+  };
+  expect(server.type).toBe("sdk");
+  expect(server.name).toBe("gateway");
+});
+
+test("buildOptions: a gateway wires the two MCP tools, the server, and env (keeping process.env)", () => {
+  process.env.PATH = process.env.PATH ?? "/usr/bin";
+  const opts = buildOptions({ ...req, gateway: { url: "http://gw", token: "tok" } }, false);
+  expect(opts.allowedTools).toEqual([
+    "mcp__gateway__gateway_catalog",
+    "mcp__gateway__gateway_invoke",
+  ]);
+  expect(opts.mcpServers?.gateway).toBeDefined();
+  expect(opts.env?.GILLY_GATEWAY_URL).toBe("http://gw");
+  expect(opts.env?.GILLY_GATEWAY_TOKEN).toBe("tok");
+  expect(opts.env?.PATH).toBe(process.env.PATH); // process.env spread survives
+  // Gateway alone is agentic: bypassed permissions, but no workspace forced.
+  expect(opts.permissionMode).toBe("bypassPermissions");
+  expect(opts.cwd).toBeUndefined();
+});
+
+test("buildOptions: no gateway → no mcpServers, no gateway env, no gateway tools", () => {
+  const opts = buildOptions(req, false);
+  expect(opts.mcpServers).toBeUndefined();
+  expect(opts.env).toBeUndefined();
+  expect(opts.allowedTools).toEqual([]);
 });
 
 test("streamAgentLoop emits a tool event per tool_use block", async () => {

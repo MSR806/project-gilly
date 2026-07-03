@@ -24,6 +24,8 @@ export const InvocationRequest = z.object({
   workspace: WorkspaceRef.optional(),
   /** Skills to load for this invocation, shipped inline. */
   skills: z.array(SkillBundle).optional(),
+  /** Tooling gateway endpoint; when present, the harness exposes it as the "gateway" MCP server. */
+  gateway: z.object({ url: z.string(), token: z.string() }).optional(),
 });
 export type InvocationRequest = z.infer<typeof InvocationRequest>;
 

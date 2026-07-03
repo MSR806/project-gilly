@@ -18,12 +18,14 @@ export function assistantMessageToInput(
   message: SlackMessageFields,
   agentId: string,
   source = "slack",
+  userId?: string,
 ): MessageInput {
   return {
     agentId,
     source,
     sourceKey: sourceKeyOf(message),
     userMessage: (message.text ?? "").trim(),
+    userId,
   };
 }
 
@@ -32,12 +34,14 @@ export function mentionEventToInput(
   event: SlackMessageFields,
   agentId: string,
   source = "slack",
+  userId?: string,
 ): MessageInput {
   return {
     agentId,
     source,
     sourceKey: sourceKeyOf(event),
     userMessage: (event.text ?? "").replace(/<@[^>]+>/g, "").trim(),
+    userId,
   };
 }
 

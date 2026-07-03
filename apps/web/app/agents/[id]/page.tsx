@@ -73,6 +73,9 @@ export default function AgentDetailPage() {
               <Row label="Skills">
                 <Chips items={agent.skills} empty="None" />
               </Row>
+              <Row label="Connectors">
+                <Chips items={agent.connectors} empty="None" />
+              </Row>
               <Row label="System prompt">
                 <p className="detail__prompt">{agent.systemPrompt}</p>
               </Row>

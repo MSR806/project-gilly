@@ -56,4 +56,3 @@ export function seedAgents(db: Db, agentsDir: string): void {
   if (listAgents(db).length > 0) return;
   for (const agent of loadAgents(agentsDir).values()) createAgent(db, agent);
 }
-

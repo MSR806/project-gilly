@@ -1,3 +1,4 @@
+import { type Db, upsertUserBySlackId } from "@gilly/db";
 import type { StreamEvent } from "@gilly/runtime";
 import { App, Assistant, LogLevel } from "@slack/bolt";
 import type { WebClient } from "@slack/web-api";
@@ -126,6 +127,23 @@ async function threadContext(
   }
 }
 
+/**
+ * Resolve a Slack user id to our internal user id (upsert on first contact). Best-effort:
+ * a failed users.info still upserts with the id as the name — never blocks the run.
+ */
+async function resolveUserId(
+  client: WebClient,
+  db: Db,
+  slackUserId?: string,
+): Promise<string | undefined> {
+  if (!slackUserId) return undefined;
+  const info = await client.users.info({ user: slackUserId }).catch(() => undefined);
+  const u = info?.user;
+  const name = u?.real_name || u?.name || slackUserId;
+  const meta = u?.profile as Record<string, unknown> | undefined;
+  return upsertUserBySlackId(db, { slackUserId, name, meta }).id;
+}
+
 function logSlackReceived(
   kind: "assistant_message" | "mention",
   input: { sourceKey: string; userMessage: string },
@@ -151,6 +169,7 @@ function logSlackReceived(
 /** Slack channel via the AI assistant surface + channel @mentions (Socket Mode). */
 export function createSlackChannel(deps: {
   engine: ReturnType<typeof createEngine>;
+  db: Db;
   botToken: string;
   appToken: string;
   agentId: string;
@@ -182,7 +201,8 @@ export function createSlackChannel(deps: {
     // then the final answer as the message body.
     userMessage: async ({ message, client, sayStream, say, setStatus }) => {
       const msg = message as SlackMessageFields;
-      const input = assistantMessageToInput(msg, deps.agentId, deps.source);
+      const userId = await resolveUserId(client, deps.db, msg.user);
+      const input = assistantMessageToInput(msg, deps.agentId, deps.source, userId);
       logSlackReceived("assistant_message", input, msg);
       await react(client, msg.channel, msg.ts, REACTION.working);
 
@@ -276,7 +296,8 @@ export function createSlackChannel(deps: {
   // Channel mentions: delta thread context, task_card + streamed reply, queued ⏳ → 👀 → ✅.
   app.event("app_mention", async ({ event, client, context }) => {
     const ev = event as SlackMessageFields;
-    const base = mentionEventToInput(ev, deps.agentId, deps.source);
+    const userId = await resolveUserId(client, deps.db, ev.user);
+    const base = mentionEventToInput(ev, deps.agentId, deps.source, userId);
     const threadTs = ev.thread_ts ?? ev.ts;
     logSlackReceived("mention", base, ev, { contextTeamId: context.teamId ?? null });
 

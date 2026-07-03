@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "gilly",
+      "dependencies": {
+        "@gilly/gateway-client": "workspace:*",
+      },
       "devDependencies": {
         "@biomejs/biome": "latest",
         "@types/bun": "latest",
@@ -21,6 +24,17 @@
         "@slack/bolt": "latest",
         "@slack/types": "latest",
         "@slack/web-api": "latest",
+        "zod": "latest",
+      },
+    },
+    "apps/gateway": {
+      "name": "@gilly/gateway",
+      "version": "0.0.0",
+      "dependencies": {
+        "@gilly/core": "workspace:*",
+        "@gilly/db": "workspace:*",
+        "@gilly/gateway-kit": "workspace:*",
+        "@modelcontextprotocol/sdk": "^1.29.0",
         "zod": "latest",
       },
     },
@@ -62,6 +76,17 @@
       "dependencies": {
         "@gilly/core": "workspace:*",
         "drizzle-orm": "latest",
+      },
+    },
+    "packages/gateway-client": {
+      "name": "@gilly/gateway-client",
+      "version": "0.0.0",
+    },
+    "packages/gateway-kit": {
+      "name": "@gilly/gateway-kit",
+      "version": "0.0.0",
+      "dependencies": {
+        "zod": "latest",
       },
     },
     "packages/harness-protocol": {
@@ -128,6 +153,12 @@
     "@gilly/core": ["@gilly/core@workspace:packages/core"],
 
     "@gilly/db": ["@gilly/db@workspace:packages/db"],
+
+    "@gilly/gateway": ["@gilly/gateway@workspace:apps/gateway"],
+
+    "@gilly/gateway-client": ["@gilly/gateway-client@workspace:packages/gateway-client"],
+
+    "@gilly/gateway-kit": ["@gilly/gateway-kit@workspace:packages/gateway-kit"],
 
     "@gilly/harness-claude": ["@gilly/harness-claude@workspace:apps/harness-claude"],
 

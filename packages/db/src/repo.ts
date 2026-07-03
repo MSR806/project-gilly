@@ -1,7 +1,17 @@
-import { AgentConfig, type Run, type Session } from "@gilly/core";
+import { AgentConfig, Grant, type Run, type Session, User } from "@gilly/core";
 import { and, asc, eq } from "drizzle-orm";
 import type { Db } from "./client.ts";
-import { agents, followUps, runs, sessions } from "./schema.ts";
+import {
+  agents,
+  credentials,
+  followUps,
+  gatewayTokens,
+  grants,
+  runs,
+  sessions,
+  toolCalls,
+  users,
+} from "./schema.ts";
 
 const now = () => Date.now();
 
@@ -18,6 +28,7 @@ function rowToAgent(row: AgentRow): AgentConfig {
     systemPrompt: row.systemPrompt,
     tools: row.tools ? JSON.parse(row.tools) : undefined,
     skills: row.skills ? JSON.parse(row.skills) : undefined,
+    connectors: row.connectors ? JSON.parse(row.connectors) : undefined,
   });
 }
 
@@ -31,6 +42,7 @@ function agentToRow(cfg: AgentConfig): AgentRow {
     systemPrompt: a.systemPrompt,
     tools: a.tools?.length ? JSON.stringify(a.tools) : null,
     skills: a.skills?.length ? JSON.stringify(a.skills) : null,
+    connectors: a.connectors?.length ? JSON.stringify(a.connectors) : null,
     createdAt: now(),
   };
 }
@@ -68,6 +80,7 @@ export function updateAgent(db: Db, id: string, cfg: AgentConfig): AgentConfig {
       systemPrompt: row.systemPrompt,
       tools: row.tools,
       skills: row.skills,
+      connectors: row.connectors,
     })
     .where(eq(agents.id, id))
     .run();
@@ -152,4 +165,192 @@ export function dequeueAllFollowUps(
     .all();
   if (rows.length) db.delete(followUps).where(eq(followUps.sessionId, sessionId)).run();
   return rows.map((r) => ({ input: r.input, ref: r.ref }));
+}
+
+// --- Users: auto-provisioned on first Slack contact --------------------------
+
+type UserRow = typeof users.$inferSelect;
+
+function rowToUser(row: UserRow): User {
+  return User.parse({
+    id: row.id,
+    slackUserId: row.slackUserId,
+    name: row.name,
+    meta: row.meta ? JSON.parse(row.meta) : undefined,
+    isAdmin: row.isAdmin === 1,
+    createdAt: row.createdAt,
+  });
+}
+
+function userToRow(user: User): UserRow {
+  const u = User.parse(user);
+  return {
+    id: u.id,
+    slackUserId: u.slackUserId,
+    name: u.name,
+    meta: u.meta ? JSON.stringify(u.meta) : null,
+    isAdmin: u.isAdmin ? 1 : 0,
+    createdAt: u.createdAt,
+  };
+}
+
+/** Insert (on first contact) or refresh name/meta for a Slack identity; returns the User. */
+export function upsertUserBySlackId(
+  db: Db,
+  input: { slackUserId: string; name: string; meta?: Record<string, unknown> },
+): User {
+  const existing = getUserBySlackId(db, input.slackUserId);
+  if (existing) {
+    const updated = { ...existing, name: input.name, meta: input.meta };
+    db.update(users)
+      .set({ name: updated.name, meta: updated.meta ? JSON.stringify(updated.meta) : null })
+      .where(eq(users.id, existing.id))
+      .run();
+    return User.parse(updated);
+  }
+  const user: User = {
+    id: crypto.randomUUID(),
+    slackUserId: input.slackUserId,
+    name: input.name,
+    meta: input.meta,
+    isAdmin: false,
+    createdAt: now(),
+  };
+  db.insert(users).values(userToRow(user)).run();
+  return user;
+}
+
+export function getUser(db: Db, id: string): User | undefined {
+  const row = db.select().from(users).where(eq(users.id, id)).get();
+  return row ? rowToUser(row) : undefined;
+}
+
+export function getUserBySlackId(db: Db, slackUserId: string): User | undefined {
+  const row = db.select().from(users).where(eq(users.slackUserId, slackUserId)).get();
+  return row ? rowToUser(row) : undefined;
+}
+
+/** All users, oldest first. */
+export function listUsers(db: Db): User[] {
+  return db.select().from(users).orderBy(asc(users.createdAt), asc(users.id)).all().map(rowToUser);
+}
+
+export function setAdmin(db: Db, id: string, isAdmin: boolean): void {
+  db.update(users)
+    .set({ isAdmin: isAdmin ? 1 : 0 })
+    .where(eq(users.id, id))
+    .run();
+}
+
+// --- Grants: per-user tool permissions ---------------------------------------
+
+/** All grants for a user, oldest first. */
+export function listGrants(db: Db, userId: string): Grant[] {
+  return db
+    .select()
+    .from(grants)
+    .where(eq(grants.userId, userId))
+    .orderBy(asc(grants.createdAt), asc(grants.id))
+    .all()
+    .map((row) => Grant.parse(row));
+}
+
+export function addGrant(db: Db, userId: string, toolPattern: string): Grant {
+  const grant: Grant = { id: crypto.randomUUID(), userId, toolPattern, createdAt: now() };
+  db.insert(grants).values(grant).run();
+  return grant;
+}
+
+export function deleteGrant(db: Db, id: string): void {
+  db.delete(grants).where(eq(grants.id, id)).run();
+}
+
+// --- Credentials: connector secrets, keyed by (provider, key) ----------------
+
+/** All key/value pairs stored for a provider. */
+export function getCredential(db: Db, provider: string): { key: string; value: string }[] {
+  return db
+    .select({ key: credentials.key, value: credentials.value })
+    .from(credentials)
+    .where(eq(credentials.provider, provider))
+    .all();
+}
+
+/** Upsert a single credential value on (provider, key). */
+export function setCredential(db: Db, provider: string, key: string, value: string): void {
+  db.insert(credentials)
+    .values({ provider, key, value })
+    .onConflictDoUpdate({ target: [credentials.provider, credentials.key], set: { value } })
+    .run();
+}
+
+/** Delete a single credential row on (provider, key). No-op if absent. */
+export function deleteCredential(db: Db, provider: string, key: string): void {
+  db.delete(credentials)
+    .where(and(eq(credentials.provider, provider), eq(credentials.key, key)))
+    .run();
+}
+
+// --- Tool calls: invocation trace --------------------------------------------
+
+export function insertToolCall(
+  db: Db,
+  input: {
+    runId: string;
+    userId?: string;
+    tool: string;
+    args: unknown;
+    durationMs: number;
+    status: string;
+  },
+): void {
+  db.insert(toolCalls)
+    .values({
+      id: crypto.randomUUID(),
+      runId: input.runId,
+      userId: input.userId ?? null,
+      tool: input.tool,
+      args: input.args !== undefined ? JSON.stringify(input.args) : null,
+      durationMs: input.durationMs,
+      status: input.status,
+      createdAt: now(),
+    })
+    .run();
+}
+
+// --- Gateway tokens: short-lived run tool-catalog tokens ---------------------
+
+type GatewayTokenRow = typeof gatewayTokens.$inferSelect;
+
+/** Mint an opaque token carrying the run's effective grant patterns; returns the token string. */
+export function createGatewayToken(
+  db: Db,
+  input: { runId: string; userId: string; agentId: string; grants: string[]; ttlMs: number },
+): string {
+  const token = crypto.randomUUID();
+  db.insert(gatewayTokens)
+    .values({
+      token,
+      runId: input.runId,
+      userId: input.userId,
+      agentId: input.agentId,
+      grants: JSON.stringify(input.grants),
+      expiresAt: now() + input.ttlMs,
+      createdAt: now(),
+    })
+    .run();
+  return token;
+}
+
+/** Look up a token with `grants` parsed to `string[]`. Caller checks `expiresAt`. */
+export function getGatewayToken(
+  db: Db,
+  token: string,
+): (Omit<GatewayTokenRow, "grants"> & { grants: string[] }) | undefined {
+  const row = db.select().from(gatewayTokens).where(eq(gatewayTokens.token, token)).get();
+  return row ? { ...row, grants: JSON.parse(row.grants) } : undefined;
+}
+
+export function deleteGatewayTokensForRun(db: Db, runId: string): void {
+  db.delete(gatewayTokens).where(eq(gatewayTokens.runId, runId)).run();
 }

@@ -1,6 +1,14 @@
 import { expect, test } from "bun:test";
 import type { AgentConfig } from "@gilly/core";
-import { createDb, enqueueFollowUp, getOrCreateSession } from "@gilly/db";
+import {
+  addGrant,
+  createDb,
+  enqueueFollowUp,
+  getGatewayToken,
+  getOrCreateSession,
+  upsertUserBySlackId,
+} from "@gilly/db";
+import type { InvocationRequest } from "@gilly/harness-protocol";
 import type { RuntimeProvider, StreamEvent } from "@gilly/runtime";
 import { createEngine } from "./engine.ts";
 
@@ -128,6 +136,80 @@ test("handle surfaces an unknown agent as an error event", async () => {
     },
   });
   expect(events).toEqual([{ type: "error", error: "Unknown agent: nope" }]);
+});
+
+// --- Gateway token minting -------------------------------------------------
+
+const echoWithConnectors: AgentConfig = { ...agent, connectors: ["echo"] };
+
+/** Fake runtime that captures the InvocationRequest (and resolves any gateway token while live). */
+function capturingRuntime(db: ReturnType<typeof createDb>) {
+  const seen: { req?: InvocationRequest; grants?: string[] } = {};
+  const runtime: RuntimeProvider = {
+    name: "fake",
+    async invoke() {
+      return { status: "completed", finalText: "", harnessSessionId: null, error: null };
+    },
+    async *invokeStream(req) {
+      seen.req = req;
+      // Resolve while the token is still live (cleanup fires on `done`).
+      if (req.gateway) seen.grants = getGatewayToken(db, req.gateway.token)?.grants;
+      yield { type: "done", finalText: "ok", harnessSessionId: null };
+    },
+    async healthy() {
+      return true;
+    },
+  };
+  return { runtime, seen };
+}
+
+test("mints a gateway token for a user whose grant matches an agent connector", async () => {
+  const db = createDb(":memory:");
+  const user = upsertUserBySlackId(db, { slackUserId: "U1", name: "U1" });
+  addGrant(db, user.id, "echo.*");
+  const { runtime, seen } = capturingRuntime(db);
+  const engine = createEngine({
+    db,
+    runtime,
+    getAgent: (id) => (id === "echo" ? echoWithConnectors : undefined),
+    gatewayUrl: "http://gw",
+  });
+
+  await collect(engine.stream({ ...baseInput, userMessage: "hi", userId: user.id }));
+  expect(seen.req?.gateway?.url).toBe("http://gw");
+  expect(seen.req?.gateway?.token).toBeTruthy();
+  expect(seen.grants).toEqual(["echo.*"]);
+});
+
+test("no gateway when the user's grants don't match the agent's connectors", async () => {
+  const db = createDb(":memory:");
+  const user = upsertUserBySlackId(db, { slackUserId: "U2", name: "U2" });
+  addGrant(db, user.id, "gmail.*"); // agent only connects "echo"
+  const { runtime, seen } = capturingRuntime(db);
+  const engine = createEngine({
+    db,
+    runtime,
+    getAgent: (id) => (id === "echo" ? echoWithConnectors : undefined),
+    gatewayUrl: "http://gw",
+  });
+
+  await collect(engine.stream({ ...baseInput, userMessage: "hi", userId: user.id }));
+  expect(seen.req?.gateway).toBeUndefined();
+});
+
+test("no gateway when gatewayUrl is unset, even with a matching grant", async () => {
+  const db = createDb(":memory:");
+  const user = upsertUserBySlackId(db, { slackUserId: "U3", name: "U3" });
+  addGrant(db, user.id, "echo.*");
+  const { runtime, seen } = capturingRuntime(db);
+  const engine = createEngine({
+    db,
+    runtime,
+    getAgent: (id) => (id === "echo" ? echoWithConnectors : undefined),
+  });
+
+  await collect(engine.stream({ ...baseInput, userMessage: "hi", userId: user.id }));
+  expect(seen.req?.gateway).toBeUndefined();
 });
 
 test("follow-ups queued mid-run are answered as one combined batch", async () => {

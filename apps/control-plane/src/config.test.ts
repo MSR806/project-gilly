@@ -50,4 +50,3 @@ test("seedAgents imports config on an empty DB, then is a no-op", () => {
   seedAgents(db, dir);
   expect(listAgents(db).map((a) => a.id)).toEqual(["echo"]);
 });
-

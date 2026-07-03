@@ -22,10 +22,35 @@ function migrate(sqlite: Database) {
     CREATE TABLE IF NOT EXISTS follow_ups (
       id TEXT PRIMARY KEY, session_id TEXT NOT NULL, input TEXT NOT NULL, ref TEXT, created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY, slack_user_id TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+      meta TEXT, is_admin INTEGER NOT NULL, created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS grants (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, tool_pattern TEXT NOT NULL, created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS credentials (
+      provider TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+      PRIMARY KEY (provider, key)
+    );
+    CREATE TABLE IF NOT EXISTS tool_calls (
+      id TEXT PRIMARY KEY, run_id TEXT NOT NULL, user_id TEXT, tool TEXT NOT NULL,
+      args TEXT, duration_ms INTEGER NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS gateway_tokens (
+      token TEXT PRIMARY KEY, run_id TEXT NOT NULL, user_id TEXT NOT NULL, agent_id TEXT NOT NULL,
+      grants TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL
+    );
   `);
   // Add `ref` to follow_ups created before it existed (ignore if already present).
   try {
     sqlite.exec("ALTER TABLE follow_ups ADD COLUMN ref TEXT;");
+  } catch {
+    // column already exists
+  }
+  // Add `connectors` to agents created before it existed (ignore if already present).
+  try {
+    sqlite.exec("ALTER TABLE agents ADD COLUMN connectors TEXT;");
   } catch {
     // column already exists
   }

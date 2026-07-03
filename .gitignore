@@ -18,3 +18,4 @@ data/
 # UI/runtime-created skills (LocalSkillStore backing files) — keep only the seed skill.
 config/skills/*
 !config/skills/our-repos/
+!config/skills/tooling/
