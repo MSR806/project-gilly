@@ -11,7 +11,12 @@ import { allTools, connectorMeta, getMcpConnector, getTool, mcpConnectors } from
 import type { Vault } from "./vault.ts";
 
 const TIMEOUT_MS = 30_000;
-const RESULT_CAP = 50_000; // direct-lane result cap; larger results belong in the script lane
+// Direct-lane result cap. Enforced here (not per-harness) so every harness — current or future —
+// is protected by default: an /invoke result over this size is refused with a pointer to the
+// script lane. The script lane opts OUT by sending `x-gilly-lane: script` (it processes big
+// payloads in the sandbox and only prints a summary, so nothing large reaches model context).
+const RESULT_CAP = 50_000;
+const SCRIPT_LANE_HEADER = "x-gilly-lane";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -143,8 +148,18 @@ export function createGatewayServer(deps: {
 
     const started = Date.now();
     const trace = () => {}; // status is derived from the result below; tracing is by construction
+    const scriptLane = req.headers.get(SCRIPT_LANE_HEADER) === "script";
 
-    const result = await run();
+    const ran = await run();
+    // Cap direct-lane results (default): oversize payloads would bloat model context, so refuse
+    // with a pointer to the script lane. The script lane opts out and gets the full payload.
+    const result =
+      !scriptLane && JSON.stringify(ran).length > RESULT_CAP
+        ? {
+            error: "result_too_large",
+            message: "result too large for the direct lane; use the script lane",
+          }
+        : ran;
     // A result carrying `error` is a failure; a raw result is success.
     const status = result && typeof result === "object" && "error" in result ? "error" : "ok";
     insertToolCall(db, {
@@ -175,7 +190,7 @@ export function createGatewayServer(deps: {
         if (!parsed.success) return { error: "invalid_input" };
 
         const ctx: ToolContext = { userId, creds, trace };
-        return capped(() => tool.handler(parsed.data, ctx));
+        return withTimeout(() => tool.handler(parsed.data, ctx));
       }
 
       // MCP tool: no local schema (the upstream server validates); resolve api_key creds, dispatch.
@@ -187,11 +202,11 @@ export function createGatewayServer(deps: {
       );
       if (!creds) return { error: "not_connected" };
       const upstreamName = toolName.slice(connector.name.length + 1);
-      return capped(() => mcp.callTool(connector, creds, upstreamName, body.input));
+      return withTimeout(() => mcp.callTool(connector, creds, upstreamName, body.input));
     }
 
-    /** Shared timeout + result-size cap; a thrown handler maps to provider_error. */
-    async function capped(exec: () => Promise<unknown>): Promise<unknown> {
+    /** Shared timeout guard; a thrown handler maps to provider_error (or not_connected for OAuth). */
+    async function withTimeout(exec: () => Promise<unknown>): Promise<unknown> {
       const timeout = Symbol("timeout");
       let result: unknown;
       try {
@@ -205,12 +220,6 @@ export function createGatewayServer(deps: {
         return { error: "provider_error" };
       }
       if (result === timeout) return { error: "timeout" };
-      if (JSON.stringify(result).length > RESULT_CAP) {
-        return {
-          error: "provider_error",
-          message: "result exceeds direct-lane cap; use the script lane",
-        };
-      }
       return result;
     }
   }

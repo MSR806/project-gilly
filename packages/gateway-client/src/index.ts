@@ -24,7 +24,13 @@ async function post(path: string, body: unknown, fetchFn: FetchFn): Promise<unkn
   const { url, token } = env();
   const res = await fetchFn(`${url}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    // We are the script lane: results are processed here in the sandbox, not sent to the model,
+    // so opt out of the gateway's direct-lane result-size cap.
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+      "x-gilly-lane": "script",
+    },
     body: JSON.stringify(body),
   });
   const data = (await res.json()) as { error?: string } | unknown;

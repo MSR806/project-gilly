@@ -75,6 +75,28 @@ test("invoke echo.ping returns result and writes a tool_calls row", async () => 
   expect(rows[0]?.tool).toBe("echo.ping");
 });
 
+test("invoke caps a large result by default, but the script lane opts out", async () => {
+  const { fetch, token } = setup(["echo.*"]);
+  const big = "x".repeat(60_000); // echo.ping returns { echoed }, so the result exceeds 50KB
+  // Direct lane (no header) → refused with a script-lane pointer, not the payload.
+  const capped = await post(fetch, "/invoke", auth(token), {
+    tool: "echo.ping",
+    input: { message: big },
+  });
+  expect(await capped.json()).toEqual({
+    error: "result_too_large",
+    message: "result too large for the direct lane; use the script lane",
+  });
+  // Script lane (x-gilly-lane: script) → full payload through.
+  const full = await post(
+    fetch,
+    "/invoke",
+    { ...auth(token), "x-gilly-lane": "script" },
+    { tool: "echo.ping", input: { message: big } },
+  );
+  expect(await full.json()).toEqual({ echoed: big });
+});
+
 test("invoke ungranted tool → forbidden", async () => {
   const { fetch, token } = setup(["echo.*"]);
   const res = await post(fetch, "/invoke", auth(token), { tool: "github.create_issue", input: {} });
