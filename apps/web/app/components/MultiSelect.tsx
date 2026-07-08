@@ -1,13 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { ChevronDown, X } from "lucide-react";
+import { Fragment } from "react";
+import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export type Option = { value: string; description?: string };
 export type Group = { label: string; options: Option[] };
 
 /**
- * Dependency-free grouped multi-select: selected values render as removable chips above a
- * toggle-open panel of grouped, checkable options with descriptions. Closes on outside-click/Escape.
+ * Grouped multi-select: selected values render as removable chips in front of a dropdown of
+ * grouped, checkable options with descriptions.
  */
 export default function MultiSelect({
   groups,
@@ -20,79 +31,59 @@ export default function MultiSelect({
   onChange: (next: string[]) => void;
   placeholder?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
   const toggle = (value: string) =>
     onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
 
   return (
-    <div className="ms" ref={ref}>
-      <div className="ms__control">
-        {selected.map((value) => (
-          <span key={value} className="ms__chip">
-            {value}
-            <button
-              type="button"
-              className="ms__chip-x"
-              aria-label={`Remove ${value}`}
-              onClick={() => toggle(value)}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        <button
-          type="button"
-          className="ms__toggle"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-        >
-          {selected.length === 0 ? <span className="ms__placeholder">{placeholder}</span> : null}
-          <span className="ms__caret">▾</span>
-        </button>
-      </div>
-
-      {open ? (
-        <div className="ms__panel">
-          {groups.map((group) => (
-            <div key={group.label} className="ms__group">
-              {group.label ? <p className="ms__group-label">{group.label}</p> : null}
-              {group.options.map((option) => (
-                <label key={option.value} className="ms__option">
-                  <input
-                    type="checkbox"
+    <div className="flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border border-input bg-transparent px-2 py-1.5 shadow-xs transition-colors focus-within:border-ring hover:border-ring">
+      {selected.map((value) => (
+        <Badge key={value} variant="secondary" className="gap-1 pr-1">
+          {value}
+          <button
+            type="button"
+            aria-label={`Remove ${value}`}
+            className="rounded-sm text-muted-foreground hover:text-destructive"
+            onClick={() => toggle(value)}
+          >
+            <X className="size-3" />
+          </button>
+        </Badge>
+      ))}
+      <DropdownMenu>
+        <DropdownMenuTrigger className="flex min-w-15 flex-1 items-center justify-between gap-2 text-left text-sm">
+          {selected.length === 0 ? (
+            <span className="text-muted-foreground">{placeholder}</span>
+          ) : (
+            <span />
+          )}
+          <ChevronDown className="size-3.5 text-muted-foreground" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="min-w-60" align="start">
+          {groups.map((group, i) => (
+            <Fragment key={group.label}>
+              {i > 0 ? <DropdownMenuSeparator /> : null}
+              <DropdownMenuGroup>
+                {group.label ? <DropdownMenuLabel>{group.label}</DropdownMenuLabel> : null}
+                {group.options.map((option) => (
+                  <DropdownMenuCheckboxItem
+                    key={option.value}
                     checked={selected.includes(option.value)}
-                    onChange={() => toggle(option.value)}
-                  />
-                  <span>
-                    <span className="ms__option-value">{option.value}</span>
-                    {option.description ? (
-                      <span className="ms__desc"> — {option.description}</span>
-                    ) : null}
-                  </span>
-                </label>
-              ))}
-            </div>
+                    onCheckedChange={() => toggle(option.value)}
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    <span>
+                      <code className="font-mono text-xs">{option.value}</code>
+                      {option.description ? (
+                        <span className="text-muted-foreground"> — {option.description}</span>
+                      ) : null}
+                    </span>
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuGroup>
+            </Fragment>
           ))}
-        </div>
-      ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

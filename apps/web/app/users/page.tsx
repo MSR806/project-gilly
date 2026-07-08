@@ -1,6 +1,23 @@
 "use client";
 
+import { Plus, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
 
@@ -24,33 +41,42 @@ export default function UsersPage() {
   }, []);
 
   return (
-    <section className="section">
-      <div className="section__head">
-        <h1 className="page-title">Users &amp; Grants</h1>
-      </div>
+    <section>
+      <h1 className="mb-4 text-xl font-semibold tracking-tight">Users &amp; Grants</h1>
 
-      {error ? <p className="state state--error">{error}</p> : null}
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       {users === null ? (
-        <p className="state">Loading users…</p>
+        <p className="py-6 text-sm text-muted-foreground">Loading users…</p>
       ) : users.length === 0 ? (
-        <p className="state">
+        <p className="py-6 text-sm text-muted-foreground">
           No users yet — a user appears here the first time they message the bot in Slack.
         </p>
       ) : (
-        <ul className="card-list">
-          {users.map((u) => (
-            <UserCard key={u.id} user={u} connectors={connectors} />
-          ))}
-        </ul>
+        <div className="overflow-x-auto rounded-xl border bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>User</TableHead>
+                <TableHead>Slack</TableHead>
+                <TableHead>Grants</TableHead>
+                <TableHead className="w-0" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {users.map((u) => (
+                <UserRow key={u.id} user={u} connectors={connectors} />
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
     </section>
   );
 }
 
-function UserCard({ user, connectors }: { user: User; connectors: string[] }) {
+function UserRow({ user, connectors }: { user: User; connectors: string[] }) {
   const [grants, setGrants] = useState<Grant[] | null>(null);
-  const [connector, setConnector] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -63,16 +89,14 @@ function UserCard({ user, connectors }: { user: User; connectors: string[] }) {
 
   useEffect(load, [load]);
 
-  async function add() {
-    const name = connector || connectors[0];
-    if (!name) return;
+  async function add(connector: string) {
     setBusy(true);
     setErr(null);
     try {
       const res = await fetch(`${API_BASE}/grants`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ userId: user.id, toolPattern: `${name}.*` }),
+        body: JSON.stringify({ userId: user.id, toolPattern: `${connector}.*` }),
       });
       if (!res.ok) throw new Error(`grant failed (${res.status})`);
       load();
@@ -94,63 +118,67 @@ function UserCard({ user, connectors }: { user: User; connectors: string[] }) {
     }
   }
 
-  return (
-    <li className="card">
-      <div className="row">
-        <div className="row__main">
-          <p className="card__name">
-            {user.name}
-            {user.isAdmin ? <span className="badge badge--ok">admin</span> : null}
-          </p>
-          <div className="card__meta">
-            <span>slack: {user.slackUserId}</span>
-          </div>
-        </div>
-      </div>
+  const initials = user.name
+    .split(/\s+/)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
-      <div className="field">
-        <span className="field__label">Grants</span>
+  return (
+    <TableRow>
+      <TableCell>
+        <div className="flex items-center gap-3">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+            {initials}
+          </div>
+          <span className="font-medium">{user.name}</span>
+          {user.isAdmin ? <Badge variant="outline">admin</Badge> : null}
+        </div>
+      </TableCell>
+      <TableCell>
+        <code className="font-mono text-xs text-muted-foreground">{user.slackUserId}</code>
+      </TableCell>
+      <TableCell>
         {grants === null ? (
-          <p className="field__hint">Loading…</p>
+          <span className="text-xs text-muted-foreground">Loading…</span>
         ) : grants.length === 0 ? (
-          <p className="field__hint">No access — this user's tool catalog is empty.</p>
+          <span className="text-xs text-muted-foreground">No access</span>
         ) : (
-          <span className="ms__chips">
+          <span className="flex flex-wrap gap-1.5">
             {grants.map((g) => (
-              <button
-                key={g.id}
-                type="button"
-                className="ms__chip"
-                title="Remove grant"
-                onClick={() => remove(g.id)}
-              >
-                {g.toolPattern} ×
-              </button>
+              <Badge key={g.id} variant="secondary" className="gap-1 pr-1">
+                {g.toolPattern}
+                <button
+                  type="button"
+                  title="Remove grant"
+                  className="rounded-sm text-muted-foreground hover:text-destructive"
+                  onClick={() => remove(g.id)}
+                >
+                  <X className="size-3" />
+                </button>
+              </Badge>
             ))}
           </span>
         )}
-      </div>
-
-      {connectors.length > 0 ? (
-        <div className="row">
-          <select
-            className="row__main"
-            value={connector || connectors[0]}
-            onChange={(e) => setConnector(e.target.value)}
-          >
-            {connectors.map((name) => (
-              <option key={name} value={name}>
-                {name}.*
-              </option>
-            ))}
-          </select>
-          <button type="button" className="btn btn--sm btn--primary" onClick={add} disabled={busy}>
-            {busy ? "Granting…" : "Grant"}
-          </button>
-        </div>
-      ) : null}
-
-      {err ? <p className="field__hint state--error">{err}</p> : null}
-    </li>
+        {err ? <p className="mt-1 text-xs text-destructive">{err}</p> : null}
+      </TableCell>
+      <TableCell>
+        {connectors.length > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="outline" size="sm" disabled={busy} />}>
+              <Plus /> Grant
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {connectors.map((name) => (
+                <DropdownMenuItem key={name} onClick={() => add(name)}>
+                  {name}.*
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+      </TableCell>
+    </TableRow>
   );
 }

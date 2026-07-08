@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { parseSseStream } from "./sse";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
@@ -108,25 +110,32 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="chat">
-      <div className="chat__head">
-        <Link href="/" className="chat__back">
+    <div className="flex h-[calc(100svh-3.5rem-3rem)] flex-col gap-4">
+      <div className="flex items-center justify-between gap-4 text-sm text-muted-foreground">
+        <Link href="/agents" className="hover:text-foreground">
           ← Agents
         </Link>
-        <span className="chat__agent">
-          Agent: <code>{agentId}</code>
+        <span>
+          Agent: <code className="font-mono text-xs">{agentId}</code>
         </span>
       </div>
 
-      <div ref={listRef} className="chat__messages">
+      <div ref={listRef} className="flex flex-1 flex-col gap-2.5 overflow-y-auto p-1">
         {messages.length === 0 ? (
-          <p className="state">Send a message to start chatting.</p>
+          <p className="text-sm text-muted-foreground">Send a message to start chatting.</p>
         ) : (
           messages.map((m, i) => {
             const isLast = i === messages.length - 1;
             const empty = m.parts.length === 0;
             return (
-              <div key={i} className={`bubble bubble--${m.role}`}>
+              <div
+                key={i}
+                className={`max-w-[75%] whitespace-pre-wrap break-words rounded-xl px-3.5 py-2.5 text-sm ${
+                  m.role === "user"
+                    ? "self-end bg-primary text-primary-foreground"
+                    : "self-start border bg-card"
+                }`}
+              >
                 {empty
                   ? streaming && isLast
                     ? "…"
@@ -135,8 +144,11 @@ export default function ChatPage() {
                       part.kind === "text" ? (
                         <span key={j}>{part.text}</span>
                       ) : (
-                        <span key={j} className="bubble__tool">
-                          🔧 <code>{part.name}</code>
+                        <span
+                          key={j}
+                          className="my-1.5 block border-l-2 border-primary py-0.5 pl-2 text-xs opacity-85"
+                        >
+                          🔧 <code className="font-mono">{part.name}</code>
                           {part.summary ? ` — ${part.summary}` : ""}
                         </span>
                       ),
@@ -147,25 +159,25 @@ export default function ChatPage() {
         )}
       </div>
 
-      {error ? <p className="state state--error">{error}</p> : null}
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       <form
-        className="chat__input"
+        className="flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           void send();
         }}
       >
-        <input
+        <Input
           type="text"
           value={input}
           disabled={streaming}
           placeholder="Type a message…"
           onChange={(e) => setInput(e.target.value)}
         />
-        <button type="submit" disabled={streaming || !input.trim()}>
+        <Button type="submit" disabled={streaming || !input.trim()}>
           {streaming ? "…" : "Send"}
-        </button>
+        </Button>
       </form>
     </div>
   );

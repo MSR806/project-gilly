@@ -2,6 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
 
@@ -46,7 +50,7 @@ export default function SkillForm({
         throw new Error(body.error ?? `Request failed (${res.status})`);
       }
       if (onSaved) onSaved(values);
-      else router.push("/");
+      else router.push("/skills");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
       setSaving(false);
@@ -54,57 +58,62 @@ export default function SkillForm({
   }
 
   return (
-    <form className="form" onSubmit={submit}>
-      <label className="field">
-        <span className="field__label">Name</span>
-        <input
+    <form className="flex max-w-2xl flex-col gap-5" onSubmit={submit}>
+      <div className="grid gap-2">
+        <Label htmlFor="skill-name">Name</Label>
+        <Input
+          id="skill-name"
           value={values.name}
           disabled={mode === "edit"}
           required
           placeholder="our-repos"
           onChange={(e) => set("name", e.target.value)}
         />
-        <span className="field__hint">
+        <p className="text-xs text-muted-foreground">
           Lowercase letters, digits, hyphens. Becomes the folder name.
-        </span>
-      </label>
+        </p>
+      </div>
 
-      <label className="field">
-        <span className="field__label">Description</span>
-        <textarea
+      <div className="grid gap-2">
+        <Label htmlFor="skill-description">Description</Label>
+        <Textarea
+          id="skill-description"
           value={values.description}
           required
           rows={2}
           placeholder="When should the agent use this skill?"
           onChange={(e) => set("description", e.target.value)}
         />
-        <span className="field__hint">Shown to the agent to decide when to load the skill.</span>
-      </label>
+        <p className="text-xs text-muted-foreground">
+          Shown to the agent to decide when to load the skill.
+        </p>
+      </div>
 
-      <label className="field">
-        <span className="field__label">Content (SKILL.md body)</span>
-        <textarea
+      <div className="grid gap-2">
+        <Label htmlFor="skill-content">Content (SKILL.md body)</Label>
+        <Textarea
+          id="skill-content"
           value={values.content}
           required
           rows={14}
           placeholder="# My Skill&#10;&#10;Instructions in Markdown…"
           onChange={(e) => set("content", e.target.value)}
         />
-      </label>
+      </div>
 
-      {error ? <p className="state state--error">{error}</p> : null}
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-      <div className="form__actions">
-        <button type="submit" className="btn btn--primary" disabled={saving}>
+      <div className="flex gap-2">
+        <Button type="submit" disabled={saving}>
           {saving ? "Saving…" : mode === "create" ? "Create skill" : "Save"}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="btn"
-          onClick={() => (onCancel ? onCancel() : router.push("/"))}
+          variant="outline"
+          onClick={() => (onCancel ? onCancel() : router.push("/skills"))}
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

@@ -1,6 +1,10 @@
 "use client";
 
+import { Cable } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
 
@@ -34,24 +38,22 @@ export default function ConnectorsPage() {
   }, []);
 
   return (
-    <section className="section">
-      <div className="section__head">
-        <h1 className="page-title">Connectors</h1>
-      </div>
+    <section>
+      <h1 className="mb-4 text-xl font-semibold tracking-tight">Connectors</h1>
 
-      {error ? <p className="state state--error">{error}</p> : null}
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {justConnected ? (
-        <p className="state state--ok">
+        <p className="mb-4 text-sm text-green-700 dark:text-green-400">
           Connected {justConnected}. It may take a moment to reflect.
         </p>
       ) : null}
 
       {connectors === null ? (
-        <p className="state">Loading connectors…</p>
+        <p className="py-6 text-sm text-muted-foreground">Loading connectors…</p>
       ) : connectors.length === 0 ? (
-        <p className="state">No connectors configured.</p>
+        <p className="py-6 text-sm text-muted-foreground">No connectors configured.</p>
       ) : (
-        <ul className="card-list">
+        <ul className="grid grid-cols-1 gap-3">
           {connectors.map((c) => (
             <ConnectorCard key={c.name} connector={c} onChange={load} />
           ))}
@@ -64,12 +66,18 @@ export default function ConnectorsPage() {
 function ConnectorCard({ connector, onChange }: { connector: Connector; onChange: () => void }) {
   const { name, auth, connected, requiredCreds } = connector;
   return (
-    <li className="card">
-      <div className="row">
-        <div className="row__main">
-          <p className="card__name">{name}</p>
-          <div className="card__meta">
-            <span className={`badge ${connected ? "badge--ok" : "badge--off"}`}>
+    <li className="rounded-xl border bg-card p-4">
+      <div className="flex items-center gap-4">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background">
+          <Cable className="size-4 text-muted-foreground" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-medium">{name}</p>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className={`size-2 rounded-full ${connected ? "bg-green-500" : "bg-destructive"}`}
+              />
               {connected ? "Connected" : "Not connected"}
             </span>
             <span>auth: {auth}</span>
@@ -79,10 +87,12 @@ function ConnectorCard({ connector, onChange }: { connector: Connector; onChange
         {auth === "oauth" ? <OAuthConnect name={name} connected={connected} /> : null}
       </div>
 
-      {auth === "none" ? <p className="field__hint">No setup needed.</p> : null}
+      {auth === "none" ? (
+        <p className="mt-3 text-xs text-muted-foreground">No setup needed.</p>
+      ) : null}
 
       {auth === "api_key" ? (
-        <div className="connector__creds">
+        <div className="mt-4 flex flex-col gap-3 border-t pt-4">
           {requiredCreds.map((key) => (
             <ApiKeyField
               key={key}
@@ -137,31 +147,32 @@ function ApiKeyField({
 
   if (!editing) {
     return (
-      <div className="row">
-        <span className="row__main field__label">{credKey}</span>
-        <button type="button" className="btn btn--sm" onClick={() => setEditing(true)}>
+      <div className="flex items-center gap-4">
+        <span className="flex-1 text-sm font-medium">{credKey}</span>
+        <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
           Update
-        </button>
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className="field">
-      <span className="field__label">{credKey}</span>
-      <div className="chat__input">
-        <input
+    <div className="grid gap-2">
+      <Label htmlFor={`cred-${name}-${credKey}`}>{credKey}</Label>
+      <div className="flex gap-2">
+        <Input
+          id={`cred-${name}-${credKey}`}
           type="password"
           value={value}
           placeholder={`Paste ${credKey}`}
           onChange={(e) => setValue(e.target.value)}
           autoComplete="off"
         />
-        <button type="button" onClick={save} disabled={saving || !value}>
+        <Button onClick={save} disabled={saving || !value}>
           {saving ? "Saving…" : "Save"}
-        </button>
+        </Button>
       </div>
-      {err ? <p className="field__hint state--error">{err}</p> : null}
+      {err ? <p className="text-xs text-destructive">{err}</p> : null}
     </div>
   );
 }
@@ -172,14 +183,8 @@ function OAuthConnect({ name, connected }: { name: string; connected: boolean })
     window.location.href = `${API_BASE}/connectors/${name}/connect`;
   };
   return (
-    <div className="row__actions">
-      <button
-        type="button"
-        className={`btn btn--sm${connected ? "" : " btn--primary"}`}
-        onClick={connect}
-      >
-        {connected ? "Reconnect" : "Connect"}
-      </button>
-    </div>
+    <Button variant={connected ? "outline" : "default"} size="sm" onClick={connect}>
+      {connected ? "Reconnect" : "Connect"}
+    </Button>
   );
 }

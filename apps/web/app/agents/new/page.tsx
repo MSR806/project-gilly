@@ -5,12 +5,12 @@ import AgentForm from "../AgentForm";
 
 export default function NewAgentPage() {
   return (
-    <>
-      <Link href="/" className="chat__back">
-        ← Back
+    <div className="flex flex-col gap-4">
+      <Link href="/agents" className="text-sm text-muted-foreground hover:text-foreground">
+        ← Agents
       </Link>
-      <h1 className="page-title">New agent</h1>
+      <h1 className="text-xl font-semibold tracking-tight">New agent</h1>
       <AgentForm mode="create" />
-    </>
+    </div>
   );
 }

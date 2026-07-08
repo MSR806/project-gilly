@@ -5,12 +5,12 @@ import SkillForm from "../SkillForm";
 
 export default function NewSkillPage() {
   return (
-    <>
-      <Link href="/" className="chat__back">
-        ← Back
+    <div className="flex flex-col gap-4">
+      <Link href="/skills" className="text-sm text-muted-foreground hover:text-foreground">
+        ← Skills
       </Link>
-      <h1 className="page-title">New skill</h1>
+      <h1 className="text-xl font-semibold tracking-tight">New skill</h1>
       <SkillForm mode="create" />
-    </>
+    </div>
   );
 }

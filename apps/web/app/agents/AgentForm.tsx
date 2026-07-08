@@ -2,6 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import MultiSelect, { type Group } from "../components/MultiSelect";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
@@ -107,7 +111,7 @@ export default function AgentForm({
         throw new Error(body.error ?? `Request failed (${res.status})`);
       }
       if (onSaved) onSaved({ ...values, id });
-      else router.push(mode === "create" ? `/chat/${id}` : "/");
+      else router.push(mode === "create" ? `/chat/${id}` : "/agents");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
       setSaving(false);
@@ -115,44 +119,51 @@ export default function AgentForm({
   }
 
   return (
-    <form className="form" onSubmit={submit}>
-      <label className="field">
-        <span className="field__label">Name</span>
-        <input
+    <form className="flex max-w-2xl flex-col gap-5" onSubmit={submit}>
+      <div className="grid gap-2">
+        <Label htmlFor="agent-name">Name</Label>
+        <Input
+          id="agent-name"
           value={values.name}
           required
           placeholder="Coder"
           onChange={(e) => set("name", e.target.value)}
         />
         {mode === "create" ? (
-          <span className="field__hint">
+          <p className="text-xs text-muted-foreground">
             Handle: <code>{slugify(values.name) || "…"}</code> (auto-generated, used in the URL)
-          </span>
+          </p>
         ) : (
-          <span className="field__hint">
+          <p className="text-xs text-muted-foreground">
             Handle: <code>{values.id}</code> (fixed)
-          </span>
+          </p>
         )}
-      </label>
+      </div>
 
-      <label className="field">
-        <span className="field__label">Model</span>
-        <input value={values.model} required onChange={(e) => set("model", e.target.value)} />
-      </label>
+      <div className="grid gap-2">
+        <Label htmlFor="agent-model">Model</Label>
+        <Input
+          id="agent-model"
+          value={values.model}
+          required
+          onChange={(e) => set("model", e.target.value)}
+        />
+      </div>
 
-      <label className="field">
-        <span className="field__label">System prompt</span>
-        <textarea
+      <div className="grid gap-2">
+        <Label htmlFor="agent-prompt">System prompt</Label>
+        <Textarea
+          id="agent-prompt"
           value={values.systemPrompt}
           required
           rows={5}
           placeholder="Role, scope, and style — not the task."
           onChange={(e) => set("systemPrompt", e.target.value)}
         />
-      </label>
+      </div>
 
-      <div className="field">
-        <span className="field__label">Tools</span>
+      <div className="grid gap-2">
+        <Label>Tools</Label>
         <MultiSelect
           groups={TOOL_GROUPS}
           selected={values.tools ?? []}
@@ -161,10 +172,10 @@ export default function AgentForm({
         />
       </div>
 
-      <div className="field">
-        <span className="field__label">Skills</span>
+      <div className="grid gap-2">
+        <Label>Skills</Label>
         {allSkills.length === 0 ? (
-          <p className="field__hint">No skills yet — create one to attach it.</p>
+          <p className="text-xs text-muted-foreground">No skills yet — create one to attach it.</p>
         ) : (
           <MultiSelect
             groups={[
@@ -180,12 +191,15 @@ export default function AgentForm({
         )}
       </div>
 
-      <div className="field">
-        <span className="field__label">Connectors</span>
+      <div className="grid gap-2">
+        <Label>Connectors</Label>
         {allConnectors.length === 0 ? (
-          <p className="field__hint">
-            No connectors available — configure one on the <a href="/connectors">Connectors</a> page
-            first.
+          <p className="text-xs text-muted-foreground">
+            No connectors available — configure one on the{" "}
+            <a href="/connectors" className="underline">
+              Connectors
+            </a>{" "}
+            page first.
           </p>
         ) : (
           <MultiSelect
@@ -203,24 +217,24 @@ export default function AgentForm({
             placeholder="No connectors — agent can't call external tools"
           />
         )}
-        <span className="field__hint">
+        <p className="text-xs text-muted-foreground">
           What this agent may reach. A user still needs a matching grant to call a tool.
-        </span>
+        </p>
       </div>
 
-      {error ? <p className="state state--error">{error}</p> : null}
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-      <div className="form__actions">
-        <button type="submit" className="btn btn--primary" disabled={saving}>
+      <div className="flex gap-2">
+        <Button type="submit" disabled={saving}>
           {saving ? "Saving…" : mode === "create" ? "Create & chat" : "Save"}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="btn"
-          onClick={() => (onCancel ? onCancel() : router.push("/"))}
+          variant="outline"
+          onClick={() => (onCancel ? onCancel() : router.push("/agents"))}
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );
