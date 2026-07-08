@@ -1,7 +1,16 @@
 {
   "name": "gilly",
   "private": true,
+  "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MSR806/project-gilly.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MSR806/project-gilly/issues"
+  },
+  "homepage": "https://github.com/MSR806/project-gilly#readme",
   "workspaces": [
     "apps/*",
     "packages/*"
