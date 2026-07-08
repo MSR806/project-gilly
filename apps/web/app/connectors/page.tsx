@@ -26,7 +26,7 @@ export default function ConnectorsPage() {
     fetch(`${API_BASE}/connectors`)
       .then((r) => r.json() as Promise<{ connectors: Connector[] }>)
       .then((d) => setConnectors(d.connectors))
-      .catch(() => setError("Failed to load connectors"));
+      .catch(() => setError("Failed to load tools"));
   }, []);
 
   useEffect(load, [load]);
@@ -39,7 +39,7 @@ export default function ConnectorsPage() {
 
   return (
     <section>
-      <h1 className="mb-4 text-xl font-semibold tracking-tight">Connectors</h1>
+      <h1 className="mb-4 text-xl font-semibold tracking-tight">Tools</h1>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {justConnected ? (
@@ -49,9 +49,9 @@ export default function ConnectorsPage() {
       ) : null}
 
       {connectors === null ? (
-        <p className="py-6 text-sm text-muted-foreground">Loading connectors…</p>
+        <p className="py-6 text-sm text-muted-foreground">Loading tools…</p>
       ) : connectors.length === 0 ? (
-        <p className="py-6 text-sm text-muted-foreground">No connectors configured.</p>
+        <p className="py-6 text-sm text-muted-foreground">No tools configured.</p>
       ) : (
         <ul className="grid grid-cols-1 gap-3">
           {connectors.map((c) => (

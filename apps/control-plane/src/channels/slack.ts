@@ -3,7 +3,6 @@ import type { StreamEvent } from "@gilly/runtime";
 import { App, Assistant, LogLevel } from "@slack/bolt";
 import type { WebClient } from "@slack/web-api";
 import type { createEngine } from "../engine.ts";
-import type { Channel } from "./channel.ts";
 import {
   advanceSteps,
   closeSteps,
@@ -166,15 +165,19 @@ function logSlackReceived(
   );
 }
 
-/** Slack channel via the AI assistant surface + channel @mentions (Socket Mode). */
-export function createSlackChannel(deps: {
+/**
+ * Build a Bolt Socket-Mode app for one Slack connection: the AI assistant surface + channel
+ * @mentions, both routing to `deps.agentId`. Returns the unstarted `App`; the connection manager
+ * owns its start/stop lifecycle.
+ */
+export function buildSlackApp(deps: {
   engine: ReturnType<typeof createEngine>;
   db: Db;
   botToken: string;
   appToken: string;
   agentId: string;
   source?: string;
-}): Channel {
+}): App {
   const app = new App({
     token: deps.botToken,
     appToken: deps.appToken,
@@ -326,5 +329,5 @@ export function createSlackChannel(deps: {
     console.log("[slack] mention handled", { queued });
   });
 
-  return { name: "slack", start: () => app.start().then(() => {}) };
+  return app;
 }

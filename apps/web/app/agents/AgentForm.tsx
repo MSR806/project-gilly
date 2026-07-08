@@ -163,7 +163,7 @@ export default function AgentForm({
       </div>
 
       <div className="grid gap-2">
-        <Label>Tools</Label>
+        <Label>Built-in tools</Label>
         <MultiSelect
           groups={TOOL_GROUPS}
           selected={values.tools ?? []}
@@ -192,12 +192,12 @@ export default function AgentForm({
       </div>
 
       <div className="grid gap-2">
-        <Label>Connectors</Label>
+        <Label>Tools</Label>
         {allConnectors.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            No connectors available — configure one on the{" "}
+            No tools available — configure one on the{" "}
             <a href="/connectors" className="underline">
-              Connectors
+              Tools
             </a>{" "}
             page first.
           </p>
@@ -205,7 +205,7 @@ export default function AgentForm({
           <MultiSelect
             groups={[
               {
-                label: "Connectors",
+                label: "Tools",
                 options: allConnectors.map((c) => ({
                   value: c.name,
                   description: `${c.connected ? "connected" : "not connected"} · auth: ${c.auth}`,
@@ -214,7 +214,7 @@ export default function AgentForm({
             ]}
             selected={values.connectors ?? []}
             onChange={(connectors) => set("connectors", connectors)}
-            placeholder="No connectors — agent can't call external tools"
+            placeholder="No tools — agent can't call external tools"
           />
         )}
         <p className="text-xs text-muted-foreground">

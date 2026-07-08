@@ -1,20 +1,27 @@
-import { AgentConfig } from "@gilly/core";
+import { AgentConfig, type SlackConnection, SlackConnectionInput, type Vault } from "@gilly/core";
 import {
   addGrant,
   createAgent,
+  createSlackConnection,
   type Db,
   deleteAgent,
   deleteGrant,
+  deleteSlackConnection,
   getAgent,
+  getSlackConnection,
   listAgents,
   listGrants,
+  listSlackConnections,
   listUsers,
   updateAgent,
+  updateSlackConnection,
 } from "@gilly/db";
+import { WebClient } from "@slack/web-api";
 import { z } from "zod";
 import type { createEngine, MessageInput } from "../engine.ts";
 import type { SkillStore } from "../stores/skill-store.ts";
 import type { Channel } from "./channel.ts";
+import type { SlackManager } from "./slack-manager.ts";
 
 // Permissive CORS so the UI can call the API directly in dev (Next also proxies /api).
 const cors = {
@@ -53,11 +60,43 @@ type WebDeps = {
   gatewayUrl?: string;
   /** Gateway admin token; injected server-side so the browser never handles it. */
   adminToken?: string;
+  /** Vault to encrypt Slack tokens before storage. Required for the Slack connection routes. */
+  vault?: Vault;
+  /** Slack connection manager, so connection CRUD starts/stops sockets live. */
+  slackManager?: SlackManager;
 };
+
+/** Public (redacted) view of a connection — tokens are never sent to the browser. */
+function redactConnection(c: SlackConnection) {
+  return {
+    id: c.id,
+    name: c.name,
+    agentId: c.agentId,
+    teamId: c.teamId,
+    teamName: c.teamName,
+    status: c.status,
+    lastError: c.lastError,
+    createdAt: c.createdAt,
+    hasBotToken: !!c.botToken,
+    hasAppToken: !!c.appToken,
+  };
+}
+
+/** Validate a Slack bot token via `auth.test`, capturing the workspace name/id. */
+async function slackAuthTest(
+  botToken: string,
+): Promise<{ ok: true; team: string; teamId: string } | { ok: false; error: string }> {
+  try {
+    const res = await new WebClient(botToken).auth.test();
+    return { ok: true, team: (res.team as string) ?? "", teamId: (res.team_id as string) ?? "" };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
 
 /** The web management API as a port-free `fetch` handler, so tests can drive it directly. */
 export function createWebHandler(deps: WebDeps): (req: Request) => Promise<Response> {
-  const { db, skillStore, gatewayUrl, adminToken } = deps;
+  const { db, skillStore, gatewayUrl, adminToken, vault, slackManager } = deps;
 
   async function fetch(req: Request): Promise<Response> {
     const { pathname } = new URL(req.url);
@@ -140,6 +179,28 @@ export function createWebHandler(deps: WebDeps): (req: Request) => Promise<Respo
     const connectProvider = pathParam(pathname, "/api/connectors/", "/connect");
     if (method === "GET" && connectProvider) return startConnect(connectProvider);
 
+    // --- Slack connections ---
+    if (pathname === "/api/slack/connections/test" && method === "POST") return testConnection(req);
+    if (pathname === "/api/slack/connections") {
+      if (method === "GET") return json(listSlackConnections(db).map(redactConnection));
+      if (method === "POST") return createConnectionRoute(req);
+    }
+    const connId = pathParam(pathname, "/api/slack/connections/");
+    if (connId) {
+      if (method === "GET") {
+        const c = getSlackConnection(db, connId);
+        return c
+          ? json(redactConnection(c))
+          : json({ error: `Connection "${connId}" not found` }, 404);
+      }
+      if (method === "PUT") return updateConnectionRoute(req, connId);
+      if (method === "DELETE") {
+        await slackManager?.remove(connId);
+        deleteSlackConnection(db, connId);
+        return json({ ok: true });
+      }
+    }
+
     if (method === "POST" && pathname === "/api/chat") return chat(req, deps.engine);
 
     return json({ error: "not found" }, 404);
@@ -220,6 +281,91 @@ export function createWebHandler(deps: WebDeps): (req: Request) => Promise<Respo
     if (unknown.length) return json({ error: `Unknown skill(s): ${unknown.join(", ")}` }, 400);
     try {
       return json(updateAgent(db, id, cfg.data));
+    } catch (e) {
+      return errorResponse(e);
+    }
+  }
+
+  /** POST /api/slack/connections/test — validate a bot token before saving. */
+  async function testConnection(req: Request): Promise<Response> {
+    const parsed = await readJson(req);
+    if ("error" in parsed) return parsed.error;
+    const body = z.object({ botToken: z.string().min(1) }).safeParse(parsed.body);
+    if (!body.success) return json({ error: body.error.message }, 400);
+    const test = await slackAuthTest(body.data.botToken);
+    return test.ok
+      ? json({ ok: true, team: test.team, teamId: test.teamId })
+      : json({ ok: false, error: test.error }, 400);
+  }
+
+  /** POST /api/slack/connections — validate, auth.test, encrypt tokens, save, start the socket. */
+  async function createConnectionRoute(req: Request): Promise<Response> {
+    if (!vault || !slackManager) return json({ error: "Slack not configured" }, 503);
+    const parsed = await readJson(req);
+    if ("error" in parsed) return parsed.error;
+    const input = SlackConnectionInput.safeParse(parsed.body);
+    if (!input.success) return json({ error: input.error.message }, 400);
+    if (!getAgent(db, input.data.agentId)) {
+      return json({ error: `Agent "${input.data.agentId}" not found` }, 400);
+    }
+    const test = await slackAuthTest(input.data.botToken);
+    if (!test.ok) return json({ error: `Slack auth failed: ${test.error}` }, 400);
+    const conn: SlackConnection = {
+      id: crypto.randomUUID(),
+      name: input.data.name,
+      agentId: input.data.agentId,
+      botToken: vault.encrypt(input.data.botToken),
+      appToken: vault.encrypt(input.data.appToken),
+      teamId: test.teamId,
+      teamName: test.team,
+      status: "active",
+      createdAt: Date.now(),
+    };
+    try {
+      createSlackConnection(db, conn);
+      await slackManager.add(conn);
+      return json(redactConnection(getSlackConnection(db, conn.id) ?? conn), 201);
+    } catch (e) {
+      return errorResponse(e);
+    }
+  }
+
+  /** PUT /api/slack/connections/:id — rebind agent / rotate tokens (blank token = keep), then restart. */
+  async function updateConnectionRoute(req: Request, id: string): Promise<Response> {
+    if (!vault || !slackManager) return json({ error: "Slack not configured" }, 503);
+    if (!getSlackConnection(db, id)) return json({ error: `Connection "${id}" not found` }, 404);
+    const parsed = await readJson(req);
+    if ("error" in parsed) return parsed.error;
+    const body = z
+      .object({
+        name: z.string().min(1),
+        agentId: z.string().min(1),
+        botToken: z.string().optional(),
+        appToken: z.string().optional(),
+      })
+      .safeParse(parsed.body);
+    if (!body.success) return json({ error: body.error.message }, 400);
+    if (!getAgent(db, body.data.agentId)) {
+      return json({ error: `Agent "${body.data.agentId}" not found` }, 400);
+    }
+    const patch: Parameters<typeof updateSlackConnection>[2] = {
+      name: body.data.name,
+      agentId: body.data.agentId,
+    };
+    const newBot = body.data.botToken?.trim();
+    const newApp = body.data.appToken?.trim();
+    if (newBot) {
+      const test = await slackAuthTest(newBot);
+      if (!test.ok) return json({ error: `Slack auth failed: ${test.error}` }, 400);
+      patch.botToken = vault.encrypt(newBot);
+      patch.teamId = test.teamId;
+      patch.teamName = test.team;
+    }
+    if (newApp) patch.appToken = vault.encrypt(newApp);
+    try {
+      const updated = updateSlackConnection(db, id, patch);
+      await slackManager.restart(updated);
+      return json(redactConnection(getSlackConnection(db, id) ?? updated));
     } catch (e) {
       return errorResponse(e);
     }

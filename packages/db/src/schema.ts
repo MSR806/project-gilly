@@ -88,6 +88,23 @@ export const toolCalls = sqliteTable("tool_calls", {
   createdAt: integer("created_at").notNull(),
 });
 
+/**
+ * A Slack workspace connection: bot/app tokens (vault-encrypted) + the agent it routes to.
+ * Mirrors the `SlackConnection` schema in `@gilly/core`. Many can coexist; managed via the web API.
+ */
+export const slackConnections = sqliteTable("slack_connections", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  agentId: text("agent_id").notNull(),
+  botToken: text("bot_token").notNull(),
+  appToken: text("app_token").notNull(),
+  teamId: text("team_id"),
+  teamName: text("team_name"),
+  status: text("status").notNull(),
+  lastError: text("last_error"),
+  createdAt: integer("created_at").notNull(),
+});
+
 /** Short-lived opaque token minting a run's effective tool catalog. `grants` is JSON `string[]`. */
 export const gatewayTokens = sqliteTable("gateway_tokens", {
   token: text("token").primaryKey(),

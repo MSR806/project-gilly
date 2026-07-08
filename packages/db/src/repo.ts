@@ -1,4 +1,4 @@
-import { AgentConfig, Grant, type Run, type Session, User } from "@gilly/core";
+import { AgentConfig, Grant, type Run, type Session, SlackConnection, User } from "@gilly/core";
 import { and, asc, eq } from "drizzle-orm";
 import type { Db } from "./client.ts";
 import {
@@ -9,6 +9,7 @@ import {
   grants,
   runs,
   sessions,
+  slackConnections,
   toolCalls,
   users,
 } from "./schema.ts";
@@ -353,4 +354,103 @@ export function getGatewayToken(
 
 export function deleteGatewayTokensForRun(db: Db, runId: string): void {
   db.delete(gatewayTokens).where(eq(gatewayTokens.runId, runId)).run();
+}
+
+// --- Slack connections: web-managed, tokens vault-encrypted by the caller -----
+
+type SlackConnectionRow = typeof slackConnections.$inferSelect;
+
+function rowToSlackConnection(row: SlackConnectionRow): SlackConnection {
+  return SlackConnection.parse({
+    id: row.id,
+    name: row.name,
+    agentId: row.agentId,
+    botToken: row.botToken,
+    appToken: row.appToken,
+    teamId: row.teamId ?? undefined,
+    teamName: row.teamName ?? undefined,
+    status: row.status,
+    lastError: row.lastError ?? undefined,
+    createdAt: row.createdAt,
+  });
+}
+
+/** All connections, oldest first. */
+export function listSlackConnections(db: Db): SlackConnection[] {
+  return db
+    .select()
+    .from(slackConnections)
+    .orderBy(asc(slackConnections.createdAt), asc(slackConnections.id))
+    .all()
+    .map(rowToSlackConnection);
+}
+
+export function getSlackConnection(db: Db, id: string): SlackConnection | undefined {
+  const row = db.select().from(slackConnections).where(eq(slackConnections.id, id)).get();
+  return row ? rowToSlackConnection(row) : undefined;
+}
+
+/** Insert a fully-formed connection (tokens already encrypted). Throws if the id exists. */
+export function createSlackConnection(db: Db, conn: SlackConnection): SlackConnection {
+  if (getSlackConnection(db, conn.id))
+    throw new Error(`Slack connection "${conn.id}" already exists`);
+  const c = SlackConnection.parse(conn);
+  db.insert(slackConnections)
+    .values({
+      id: c.id,
+      name: c.name,
+      agentId: c.agentId,
+      botToken: c.botToken,
+      appToken: c.appToken,
+      teamId: c.teamId ?? null,
+      teamName: c.teamName ?? null,
+      status: c.status,
+      lastError: c.lastError ?? null,
+      createdAt: c.createdAt,
+    })
+    .run();
+  return c;
+}
+
+/** Update the user-editable fields. Only keys present in `patch` are written. Throws if absent. */
+export function updateSlackConnection(
+  db: Db,
+  id: string,
+  patch: {
+    name?: string;
+    agentId?: string;
+    botToken?: string;
+    appToken?: string;
+    teamId?: string;
+    teamName?: string;
+  },
+): SlackConnection {
+  const existing = getSlackConnection(db, id);
+  if (!existing) throw new Error(`Slack connection "${id}" not found`);
+  const set: Partial<SlackConnectionRow> = {};
+  if (patch.name !== undefined) set.name = patch.name;
+  if (patch.agentId !== undefined) set.agentId = patch.agentId;
+  if (patch.botToken !== undefined) set.botToken = patch.botToken;
+  if (patch.appToken !== undefined) set.appToken = patch.appToken;
+  if (patch.teamId !== undefined) set.teamId = patch.teamId;
+  if (patch.teamName !== undefined) set.teamName = patch.teamName;
+  db.update(slackConnections).set(set).where(eq(slackConnections.id, id)).run();
+  return getSlackConnection(db, id) as SlackConnection;
+}
+
+/** Record a connection's start/runtime outcome (the manager calls this). */
+export function setSlackConnectionStatus(
+  db: Db,
+  id: string,
+  status: SlackConnection["status"],
+  lastError?: string,
+): void {
+  db.update(slackConnections)
+    .set({ status, lastError: lastError ?? null })
+    .where(eq(slackConnections.id, id))
+    .run();
+}
+
+export function deleteSlackConnection(db: Db, id: string): void {
+  db.delete(slackConnections).where(eq(slackConnections.id, id)).run();
 }

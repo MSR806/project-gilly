@@ -19,7 +19,7 @@ services:
     depends_on:
       - harness
     env_file:
-      - ../apps/control-plane/.env    # Slack tokens, WEB_PORT, GILLY_AGENT_ID, ...
+      - ../apps/control-plane/.env    # GILLY_VAULT_KEY (required), WEB_PORT, ...
     environment:
       # Override .env values that only make sense on the host, not in-network.
       # (environment wins over env_file.)

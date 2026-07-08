@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, Bot, Cable, Users } from "lucide-react";
+import { BookOpen, Bot, Cable, MessageSquare, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -17,7 +17,8 @@ import {
 const NAV = [
   { title: "Agents", href: "/agents", icon: Bot },
   { title: "Skills", href: "/skills", icon: BookOpen },
-  { title: "Connectors", href: "/connectors", icon: Cable },
+  { title: "Channels", href: "/connections", icon: MessageSquare },
+  { title: "Tools", href: "/connectors", icon: Cable },
   { title: "Users", href: "/users", icon: Users },
 ];
 

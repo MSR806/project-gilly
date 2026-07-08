@@ -41,6 +41,11 @@ function migrate(sqlite: Database) {
       token TEXT PRIMARY KEY, run_id TEXT NOT NULL, user_id TEXT NOT NULL, agent_id TEXT NOT NULL,
       grants TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS slack_connections (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, agent_id TEXT NOT NULL,
+      bot_token TEXT NOT NULL, app_token TEXT NOT NULL, team_id TEXT, team_name TEXT,
+      status TEXT NOT NULL, last_error TEXT, created_at INTEGER NOT NULL
+    );
   `);
   // Add `ref` to follow_ups created before it existed (ignore if already present).
   try {

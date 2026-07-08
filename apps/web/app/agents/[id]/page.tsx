@@ -80,7 +80,11 @@ export default function AgentDetailPage() {
                   <CardTitle>Capabilities</CardTitle>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
-                  <CapabilityRow label="Tools" items={agent.tools} empty="None (chat-only)" />
+                  <CapabilityRow
+                    label="Built-in tools"
+                    items={agent.tools}
+                    empty="None (chat-only)"
+                  />
                   <CapabilityRow
                     label="Skills"
                     items={agent.skills}
@@ -88,7 +92,7 @@ export default function AgentDetailPage() {
                     href={(skill) => `/skills/${skill}`}
                   />
                   <CapabilityRow
-                    label="Connectors"
+                    label="Tools"
                     items={agent.connectors}
                     empty="None"
                     href={() => "/connectors"}

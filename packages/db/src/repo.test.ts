@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { AgentConfig } from "@gilly/core";
+import type { AgentConfig, SlackConnection } from "@gilly/core";
 import { createDb } from "./client.ts";
 import {
   addGrant,
@@ -7,20 +7,26 @@ import {
   createAgent,
   createGatewayToken,
   createRun,
+  createSlackConnection,
   deleteAgent,
   deleteGatewayTokensForRun,
   deleteGrant,
+  deleteSlackConnection,
   dequeueAllFollowUps,
   enqueueFollowUp,
   getAgent,
   getCredential,
   getGatewayToken,
   getOrCreateSession,
+  getSlackConnection,
   hasActiveRun,
   listAgents,
   listGrants,
+  listSlackConnections,
   setCredential,
+  setSlackConnectionStatus,
   updateAgent,
+  updateSlackConnection,
   upsertUserBySlackId,
 } from "./repo.ts";
 
@@ -160,4 +166,64 @@ test("agent with connectors round-trips through get/update", () => {
   expect(getAgent(db, "coder")?.connectors).toEqual(["branch"]);
   updateAgent(db, "coder", { ...agentCfg, connectors: ["branch", "gmail"] });
   expect(getAgent(db, "coder")?.connectors).toEqual(["branch", "gmail"]);
+});
+
+// --- Slack connections -------------------------------------------------------
+
+const conn: SlackConnection = {
+  id: "conn-1",
+  name: "Acme",
+  agentId: "coder",
+  botToken: "enc-bot",
+  appToken: "enc-app",
+  teamId: "T1",
+  teamName: "Acme Inc",
+  status: "active",
+  createdAt: 1,
+};
+
+test("slack connection round-trips through the DB", () => {
+  const db = freshDb();
+  createSlackConnection(db, conn);
+  expect(getSlackConnection(db, "conn-1")).toEqual(conn);
+  expect(listSlackConnections(db)).toEqual([conn]);
+});
+
+test("createSlackConnection rejects a duplicate id", () => {
+  const db = freshDb();
+  createSlackConnection(db, conn);
+  expect(() => createSlackConnection(db, conn)).toThrow(/already exists/);
+});
+
+test("updateSlackConnection writes only the keys present in the patch", () => {
+  const db = freshDb();
+  createSlackConnection(db, conn);
+  // Rebind the agent and rename; leave tokens untouched (blank-on-edit case).
+  const updated = updateSlackConnection(db, "conn-1", { name: "Renamed", agentId: "other" });
+  expect(updated.name).toBe("Renamed");
+  expect(updated.agentId).toBe("other");
+  expect(updated.botToken).toBe("enc-bot"); // unchanged
+  expect(updated.appToken).toBe("enc-app"); // unchanged
+});
+
+test("setSlackConnectionStatus records an error and clears it again", () => {
+  const db = freshDb();
+  createSlackConnection(db, conn);
+  setSlackConnectionStatus(db, "conn-1", "error", "bad token");
+  expect(getSlackConnection(db, "conn-1")).toMatchObject({
+    status: "error",
+    lastError: "bad token",
+  });
+  setSlackConnectionStatus(db, "conn-1", "active");
+  expect(getSlackConnection(db, "conn-1")).toMatchObject({
+    status: "active",
+    lastError: undefined,
+  });
+});
+
+test("deleteSlackConnection removes the row", () => {
+  const db = freshDb();
+  createSlackConnection(db, conn);
+  deleteSlackConnection(db, "conn-1");
+  expect(getSlackConnection(db, "conn-1")).toBeUndefined();
 });

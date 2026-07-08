@@ -1,9 +1,10 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { createDb, getAgent, listAgents } from "@gilly/db";
+import { makeVault } from "@gilly/core";
+import { createDb, getAgent } from "@gilly/db";
 import { LocalRuntimeProvider } from "@gilly/runtime";
 import type { Channel } from "./channels/channel.ts";
-import { createSlackChannel } from "./channels/slack.ts";
+import { createSlackManager } from "./channels/slack-manager.ts";
 import { createWebChannel } from "./channels/web.ts";
 import { seedAgents } from "./config.ts";
 import { createEngine } from "./engine.ts";
@@ -21,16 +22,15 @@ const HARNESS_URL = process.env.HARNESS_URL ?? "http://localhost:8080";
 const WEB_PORT = Number(process.env.WEB_PORT ?? 4000);
 const GILLY_GATEWAY_URL = process.env.GILLY_GATEWAY_URL;
 const GILLY_ADMIN_TOKEN = process.env.GILLY_ADMIN_TOKEN;
-const { SLACK_BOT_TOKEN, SLACK_APP_TOKEN } = process.env;
+
+const vaultKey = process.env.GILLY_VAULT_KEY;
+if (!vaultKey) throw new Error("GILLY_VAULT_KEY is required (encrypts Slack connection tokens)");
 
 mkdirSync(dirname(DATABASE_PATH), { recursive: true });
 const db = createDb(DATABASE_PATH);
 seedAgents(db, AGENTS_DIR); // first run only: import config/agents/*.json into the DB
 const skillStore = new LocalSkillStore(SKILLS_DIR);
-
-// Agent references to unknown skills now fail at run time (engine.skillsFor), recorded as a failed
-// run with a clear message — better than a boot crash for runtime-mutable config.
-const agentId = process.env.GILLY_AGENT_ID ?? listAgents(db)[0]?.id ?? "";
+const vault = makeVault(vaultKey);
 
 const runtime = new LocalRuntimeProvider(HARNESS_URL);
 const engine = createEngine({
@@ -41,7 +41,11 @@ const engine = createEngine({
   gatewayUrl: GILLY_GATEWAY_URL,
 });
 
-// Web is always on (the UI + management API). Slack is optional — only if configured.
+// The Slack manager owns all web-configured connections (started from the DB); it's also handed to
+// the web channel so the management API can add/edit/remove connections without a restart.
+const slack = createSlackManager({ engine, db, vault });
+
+// Web is always on (the UI + management API); Slack starts whatever connections exist in the DB.
 const channels: Channel[] = [
   createWebChannel({
     engine,
@@ -50,21 +54,11 @@ const channels: Channel[] = [
     port: WEB_PORT,
     gatewayUrl: GILLY_GATEWAY_URL,
     adminToken: GILLY_ADMIN_TOKEN,
+    vault,
+    slackManager: slack,
   }),
+  slack,
 ];
-if (SLACK_BOT_TOKEN && SLACK_APP_TOKEN) {
-  channels.push(
-    createSlackChannel({
-      engine,
-      db,
-      botToken: SLACK_BOT_TOKEN,
-      appToken: SLACK_APP_TOKEN,
-      agentId,
-    }),
-  );
-} else {
-  console.warn("SLACK_BOT_TOKEN/SLACK_APP_TOKEN not set — Slack channel disabled (web only)");
-}
 
 await Promise.all(channels.map((c) => c.start()));
 console.log(`⚡️ Gilly control plane ready — channels: ${channels.map((c) => c.name).join(", ")}`);

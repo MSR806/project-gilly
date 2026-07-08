@@ -68,3 +68,97 @@ test("connect proxy bounces back to the connectors page when already connected (
   expect(res.status).toBe(302);
   expect(res.headers.get("location")).toBe("/connectors?connected=jira");
 });
+
+// --- Slack connections: redaction + blank-token-keep (no Slack network needed) ---
+
+import { makeVault } from "@gilly/core";
+import { createAgent, createSlackConnection, getSlackConnection } from "@gilly/db";
+import type { SlackManager } from "./slack-manager.ts";
+
+/** A no-op Slack manager that records which lifecycle calls the routes make. */
+function fakeManager() {
+  const calls: string[] = [];
+  const mgr = {
+    name: "slack",
+    start: async () => {},
+    add: async () => void calls.push("add"),
+    remove: async (id: string) => void calls.push(`remove:${id}`),
+    restart: async (c: { id: string }) => void calls.push(`restart:${c.id}`),
+  } as unknown as SlackManager;
+  return { mgr, calls };
+}
+
+/** Handler wired with a real vault, a fake manager, and a seeded agent + connection. */
+function slackHandler() {
+  const db = createDb(":memory:");
+  const vault = makeVault("test-key");
+  const { mgr, calls } = fakeManager();
+  createAgent(db, { id: "coder", name: "Coder", model: "m", systemPrompt: "x" });
+  createSlackConnection(db, {
+    id: "conn-1",
+    name: "Acme",
+    agentId: "coder",
+    botToken: vault.encrypt("xoxb-secret"),
+    appToken: vault.encrypt("xapp-secret"),
+    teamId: "T1",
+    teamName: "Acme Inc",
+    status: "active",
+    createdAt: 1,
+  });
+  const fetch = createWebHandler({
+    engine: {} as ReturnType<typeof createEngine>,
+    db,
+    skillStore: {} as SkillStore,
+    port: 0,
+    vault,
+    slackManager: mgr,
+  });
+  return { fetch, db, vault, calls };
+}
+
+test("GET connections never leaks tokens (redacted list + detail)", async () => {
+  const { fetch } = slackHandler();
+  const list = (await (
+    await fetch(new Request("http://x/api/slack/connections"))
+  ).json()) as unknown[];
+  expect(JSON.stringify(list)).not.toContain("xoxb");
+  expect(JSON.stringify(list)).not.toContain("appToken");
+  const one = (await (
+    await fetch(new Request("http://x/api/slack/connections/conn-1"))
+  ).json()) as Record<string, unknown>;
+  expect(one).toMatchObject({
+    id: "conn-1",
+    teamName: "Acme Inc",
+    hasBotToken: true,
+    hasAppToken: true,
+  });
+  expect(one.botToken).toBeUndefined();
+  expect(one.appToken).toBeUndefined();
+});
+
+test("PUT with blank tokens keeps the stored tokens and restarts the connection", async () => {
+  const { fetch, db, vault, calls } = slackHandler();
+  const res = await fetch(
+    new Request("http://x/api/slack/connections/conn-1", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Renamed", agentId: "coder" }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  const stored = getSlackConnection(db, "conn-1");
+  expect(stored?.name).toBe("Renamed");
+  expect(vault.decrypt(stored?.botToken ?? "")).toBe("xoxb-secret"); // unchanged
+  expect(vault.decrypt(stored?.appToken ?? "")).toBe("xapp-secret"); // unchanged
+  expect(calls).toContain("restart:conn-1");
+});
+
+test("DELETE stops the socket and removes the row", async () => {
+  const { fetch, db, calls } = slackHandler();
+  const res = await fetch(
+    new Request("http://x/api/slack/connections/conn-1", { method: "DELETE" }),
+  );
+  expect(res.status).toBe(200);
+  expect(getSlackConnection(db, "conn-1")).toBeUndefined();
+  expect(calls).toContain("remove:conn-1");
+});
