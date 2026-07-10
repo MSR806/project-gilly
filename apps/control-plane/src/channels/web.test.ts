@@ -1,6 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createDb } from "@gilly/db";
+import type { StreamEvent } from "@gilly/runtime";
 import type { createEngine } from "../engine.ts";
+import { LocalSkillStore } from "../stores/local-skill-store.ts";
 import type { SkillStore } from "../stores/skill-store.ts";
 import { createWebHandler } from "./web.ts";
 
@@ -67,6 +72,107 @@ test("connect proxy bounces back to the connectors page when already connected (
   const res = await handler()(new Request("http://x/api/connectors/jira/connect"));
   expect(res.status).toBe(302);
   expect(res.headers.get("location")).toBe("/connectors?connected=jira");
+});
+
+test("POST /api/skills persists a skill with supporting files; GET returns them", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "gilly-web-skills-"));
+  const fetch = createWebHandler({
+    engine: {} as ReturnType<typeof createEngine>,
+    db: createDb(":memory:"),
+    skillStore: new LocalSkillStore(dir),
+    port: 0,
+    gatewayUrl: "http://gw",
+    adminToken: "admin-secret",
+  });
+
+  const create = await fetch(
+    new Request("http://x/api/skills", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "cac",
+        description: "Run CAC.",
+        content: "# CAC",
+        files: [{ path: "cac.ts", contents: "console.log(1)" }],
+      }),
+    }),
+  );
+  expect(create.status).toBe(201);
+
+  const detail = await (await fetch(new Request("http://x/api/skills/cac"))).json();
+  expect(detail).toEqual({
+    name: "cac",
+    description: "Run CAC.",
+    content: "# CAC",
+    files: [{ path: "cac.ts", contents: "console.log(1)" }],
+  });
+
+  const bad = await fetch(
+    new Request("http://x/api/skills", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "evil",
+        description: "d",
+        content: "c",
+        files: [{ path: "../escape.ts", contents: "x" }],
+      }),
+    }),
+  );
+  expect(bad.status).toBe(400);
+});
+
+test("POST /api/agents/:id/invoke collects final text and non-token steps", async () => {
+  let seen: Record<string, unknown> | undefined;
+  const engine = {
+    async *stream(input: Record<string, unknown>): AsyncIterable<StreamEvent> {
+      seen = input;
+      yield { type: "message", text: "I will inspect it." };
+      yield { type: "tool", name: "Read", summary: "apps/foo.ts" };
+      yield { type: "token", text: "Done" };
+      yield { type: "done", finalText: "Done.", harnessSessionId: null };
+    },
+  } as ReturnType<typeof createEngine>;
+  const fetch = createWebHandler({
+    engine,
+    db: createDb(":memory:"),
+    skillStore: {} as SkillStore,
+    port: 0,
+    webUserId: "user-1",
+  });
+
+  const res = await fetch(
+    new Request("http://x/api/agents/helper/invoke", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "do it" }),
+    }),
+  );
+
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({
+    finalText: "Done.",
+    steps: [
+      { type: "message", text: "I will inspect it." },
+      { type: "tool", name: "Read", summary: "apps/foo.ts" },
+    ],
+  });
+  expect(seen).toMatchObject({
+    agentId: "helper",
+    source: "gateway",
+    userMessage: "do it",
+    userId: "user-1",
+  });
+  expect(String(seen?.sourceKey).startsWith("gateway:")).toBe(true);
+
+  const bad = await fetch(
+    new Request("http://x/api/agents/helper/invoke", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    }),
+  );
+  expect(bad.status).toBe(400);
 });
 
 // --- Slack connections: redaction + blank-token-keep (no Slack network needed) ---

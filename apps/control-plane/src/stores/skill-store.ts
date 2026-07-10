@@ -1,4 +1,4 @@
-import type { SkillFields } from "@gilly/core";
+import type { SkillFields, SkillFile } from "@gilly/core";
 import type { SkillBundle } from "@gilly/harness-protocol";
 
 /**
@@ -11,11 +11,11 @@ export interface SkillStore {
   list(): { name: string; description: string }[];
   /** The full bundle the engine ships to the harness, or undefined if unknown. */
   get(name: string): SkillBundle | undefined;
-  /** The authoring fields (name, description, content) for an edit form. */
+  /** The authoring fields (name, description, content, files) for an edit form. */
   detail(name: string): SkillFields | undefined;
   /** Author a new skill. Throws if the name already exists. */
   create(input: SkillFields): void;
-  /** Replace an existing skill's body (name is immutable). Throws if it doesn't exist. */
-  update(name: string, input: { description: string; content: string }): void;
+  /** Replace an existing skill's body and files (name is immutable). Throws if it doesn't exist. */
+  update(name: string, input: { description: string; content: string; files?: SkillFile[] }): void;
   delete(name: string): void;
 }

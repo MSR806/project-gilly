@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { composeSkillMd, parseSkillMd } from "./skill.ts";
+import { composeSkillMd, isSafeSkillFilePath, parseSkillMd } from "./skill.ts";
 
 test("composeSkillMd emits frontmatter then body", () => {
   expect(composeSkillMd("our-repos", "Use for repos.", "# Repos\n\nbody")).toBe(
@@ -19,4 +19,13 @@ test("parseSkillMd tolerates a file with no frontmatter", () => {
     description: "",
     content: "# Just a heading\n\ntext",
   });
+});
+
+test("isSafeSkillFilePath allows relative paths, rejects traversal/absolute/SKILL.md", () => {
+  for (const ok of ["cac.ts", "lib/util.ts", "a/b/c.json"]) {
+    expect(isSafeSkillFilePath(ok)).toBe(true);
+  }
+  for (const bad of ["", "SKILL.md", "/abs.ts", "../x.ts", "a/../b.ts", "a\\b.ts", "./x.ts"]) {
+    expect(isSafeSkillFilePath(bad)).toBe(false);
+  }
 });

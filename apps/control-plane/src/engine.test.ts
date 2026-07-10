@@ -6,6 +6,7 @@ import {
   enqueueFollowUp,
   getGatewayToken,
   getOrCreateSession,
+  setAdmin,
   upsertUserBySlackId,
 } from "@gilly/db";
 import type { InvocationRequest } from "@gilly/harness-protocol";
@@ -195,6 +196,22 @@ test("no gateway when the user's grants don't match the agent's connectors", asy
 
   await collect(engine.stream({ ...baseInput, userMessage: "hi", userId: user.id }));
   expect(seen.req?.gateway).toBeUndefined();
+});
+
+test("an admin bypasses grants: gets full access to the agent's connectors", async () => {
+  const db = createDb(":memory:");
+  const user = upsertUserBySlackId(db, { slackUserId: "admin", name: "Admin" });
+  setAdmin(db, user.id, true); // no addGrant — admin needs none
+  const { runtime, seen } = capturingRuntime(db);
+  const engine = createEngine({
+    db,
+    runtime,
+    getAgent: (id) => (id === "echo" ? echoWithConnectors : undefined),
+    gatewayUrl: "http://gw",
+  });
+
+  await collect(engine.stream({ ...baseInput, userMessage: "hi", userId: user.id }));
+  expect(seen.grants).toEqual(["echo.*"]);
 });
 
 test("no gateway when gatewayUrl is unset, even with a matching grant", async () => {

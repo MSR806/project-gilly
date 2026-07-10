@@ -10,6 +10,7 @@ import {
   failRun,
   getOrCreateSession,
   getSessionById,
+  getUser,
   hasActiveRun,
   listGrants,
   setHarnessSession,
@@ -98,13 +99,18 @@ export function createEngine(deps: {
       // (unknown skill name) — caught below and recorded as a failed run.
       const skillBundles = skillsFor(agent);
 
-      // effective grants = user's grant patterns whose connector prefix is in the agent's connectors
+      // Effective grants. Admins bypass per-connector grants — they get every tool the agent is
+      // configured to use (its connectors are still the ceiling). Everyone else: their grant
+      // patterns whose connector prefix is in the agent's connectors.
       const conns = new Set(agent.connectors ?? []);
-      const grants = userId
-        ? listGrants(db, userId)
-            .map((g) => g.toolPattern)
-            .filter((p) => conns.has(p.split(".")[0] ?? ""))
-        : [];
+      const user = userId ? getUser(db, userId) : undefined;
+      const grants = !user
+        ? []
+        : user.isAdmin
+          ? [...conns].map((c) => `${c}.*`)
+          : listGrants(db, user.id)
+              .map((g) => g.toolPattern)
+              .filter((p) => conns.has(p.split(".")[0] ?? ""));
       let gateway: { url: string; token: string } | undefined;
       if (gatewayUrl && userId && grants.length > 0) {
         const token = createGatewayToken(db, {

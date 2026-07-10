@@ -40,7 +40,7 @@ packages/
   harness-protocol/ the control-plane ⇄ harness contract
   runtime/         RuntimeProvider seam + Local/AgentCore implementations
   db/              SQLite (Drizzle): operational state (sessions, runs, queue) + agent config (agents table) + repo CRUD
-config/agents/     seed *.json agents — imported into the DB on first boot (seedAgents); the DB is authoritative after
+config/agents/     *.json agents — upserted into the DB on every boot (syncAgents); files win for whatever they contain, DB-only agents survive
 config/skills/     <name>/SKILL.md folders — the LocalSkillStore's backing files
 ```
 
@@ -74,7 +74,7 @@ Extension points are interfaces with small implementations (`class … implement
 
 ## Recipes — where things go
 
-- **New agent** → create via the web UI or management API (`POST /api/agents`); it persists to the `agents` table via `@gilly/db` repo fns. `AgentConfig` (`packages/core/src/agent.ts`) is `{ id, name, model, systemPrompt, tools?, skills? }`. `config/agents/*.json` are seed-only (imported on first boot by `seedAgents`); the DB is authoritative after.
+- **New agent** → create via the web UI or management API (`POST /api/agents`); it persists to the `agents` table via `@gilly/db` repo fns. `AgentConfig` (`packages/core/src/agent.ts`) is `{ id, name, model, systemPrompt, tools?, skills? }`. `config/agents/*.json` are upserted into the DB on every boot by `syncAgents` (files win for the ids they define; agents created only in the DB survive).
 - **New skill** → create via the web UI or management API (`POST /api/skills`) with `{ name, description, content }`; the `SkillStore` composes a `SKILL.md` (YAML frontmatter + body) under `config/skills/<name>/`. The engine ships an agent's attached skills inline to the harness as `SkillBundle`s.
 - **Agent tools** are high-level Gilly abstractions — `Read` / `Write` / `Bash` — stored in config. The harness (`apps/harness-claude/src/loop.ts` `expandTools`) maps them to concrete SDK tools (e.g. `Read → Read/Glob/Grep`). **Never surface SDK tool names above the harness**; the UI/DB/API see only the abstractions.
 - **New config-store backend** (e.g. S3 skills) → add a class implementing `SkillStore` in `apps/control-plane/src/stores/` (sibling to `local-skill-store.ts`) and swap it in `index.ts`. Nothing above the seam changes.

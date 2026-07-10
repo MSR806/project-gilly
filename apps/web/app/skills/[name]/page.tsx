@@ -89,6 +89,19 @@ export default function SkillDetailPage() {
                   </pre>
                 </CardContent>
               </Card>
+
+              {skill.files?.map((f) => (
+                <Card key={f.path}>
+                  <CardHeader>
+                    <CardTitle className="font-mono text-sm">{f.path}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg border bg-muted/50 p-4 font-mono text-xs leading-relaxed">
+                      {f.contents}
+                    </pre>
+                  </CardContent>
+                </Card>
+              ))}
             </>
           )}
         </>

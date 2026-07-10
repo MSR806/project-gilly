@@ -1,6 +1,12 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { composeSkillMd, parseSkillMd, type SkillFields } from "@gilly/core";
+import { dirname, join } from "node:path";
+import {
+  composeSkillMd,
+  isSafeSkillFilePath,
+  parseSkillMd,
+  type SkillFields,
+  type SkillFile,
+} from "@gilly/core";
 import type { SkillBundle } from "@gilly/harness-protocol";
 import { loadSkills } from "../config.ts";
 import type { SkillStore } from "./skill-store.ts";
@@ -39,7 +45,8 @@ export class LocalSkillStore implements SkillStore {
     const bundle = this.cache.get(name);
     if (!bundle) return undefined;
     const { description, content } = parseSkillMd(skillMd(bundle));
-    return { name, description, content };
+    const files = bundle.files.filter((f) => f.path !== SKILL_FILE);
+    return { name, description, content, ...(files.length ? { files } : {}) };
   }
 
   create(input: SkillFields): void {
@@ -49,12 +56,12 @@ export class LocalSkillStore implements SkillStore {
       );
     }
     if (this.cache.has(input.name)) throw new Error(`Skill "${input.name}" already exists`);
-    this.write(input.name, input.description, input.content);
+    this.write(input);
   }
 
-  update(name: string, input: { description: string; content: string }): void {
+  update(name: string, input: { description: string; content: string; files?: SkillFile[] }): void {
     if (!this.cache.has(name)) throw new Error(`Skill "${name}" not found`);
-    this.write(name, input.description, input.content);
+    this.write({ name, ...input });
   }
 
   delete(name: string): void {
@@ -62,12 +69,28 @@ export class LocalSkillStore implements SkillStore {
     this.cache.delete(name);
   }
 
-  /** Compose the SKILL.md, persist it, and refresh the cache entry. */
-  private write(name: string, description: string, content: string): void {
-    const contents = composeSkillMd(name, description, content);
+  /**
+   * Compose SKILL.md + write every supporting file, then refresh the cache entry. Rewrites the
+   * folder from scratch so files dropped from `input` disappear on disk. Bad paths throw before
+   * anything is removed.
+   */
+  private write({ name, description, content, files = [] }: SkillFields): void {
+    for (const f of files) {
+      if (!isSafeSkillFilePath(f.path)) throw new Error(`Invalid skill file path "${f.path}"`);
+    }
     const folder = join(this.dir, name);
+    rmSync(folder, { recursive: true, force: true });
     mkdirSync(folder, { recursive: true });
-    writeFileSync(join(folder, SKILL_FILE), contents);
-    this.cache.set(name, { name, files: [{ path: SKILL_FILE, contents }] });
+
+    const skillMdContents = composeSkillMd(name, description, content);
+    writeFileSync(join(folder, SKILL_FILE), skillMdContents);
+    const bundleFiles = [{ path: SKILL_FILE, contents: skillMdContents }];
+    for (const f of files) {
+      const dest = join(folder, f.path);
+      mkdirSync(dirname(dest), { recursive: true });
+      writeFileSync(dest, f.contents);
+      bundleFiles.push({ path: f.path, contents: f.contents });
+    }
+    this.cache.set(name, { name, files: bundleFiles });
   }
 }

@@ -11,6 +11,18 @@ import { allTools, connectorMeta, getMcpConnector, getTool, mcpConnectors } from
 import type { Vault } from "./vault.ts";
 
 const TIMEOUT_MS = 30_000;
+// Per-connector discovery timeout. The catalog fans out live listTools calls to every MCP upstream;
+// one that accepts the connection but never responds would otherwise hang the whole catalog request
+// (and the agent turn waiting on it) forever. A timeout is treated like a down provider — skipped.
+const CATALOG_TIMEOUT_MS = 10_000;
+
+/** Race a promise against a timeout; rejects with `reason` if it doesn't settle in time. */
+function withDeadline<T>(promise: Promise<T>, ms: number, reason: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(reason)), ms)),
+  ]);
+}
 // Direct-lane result cap. Enforced here (not per-harness) so every harness — current or future —
 // is protected by default: an /invoke result over this size is refused with a pointer to the
 // script lane. The script lane opts OUT by sending `x-gilly-lane: script` (it processes big
@@ -53,8 +65,11 @@ export function createGatewayServer(deps: {
   /** Web app base URL to bounce back to after an OAuth connect (so the same tab returns to the UI). */
   webUrl?: string;
   mcp?: McpGateway;
+  /** Per-connector catalog discovery timeout (ms). Overridable so tests don't wait the full default. */
+  catalogTimeoutMs?: number;
 }) {
   const { db, vault, adminToken } = deps;
+  const catalogTimeoutMs = deps.catalogTimeoutMs ?? CATALOG_TIMEOUT_MS;
   const gatewayUrl = deps.gatewayUrl ?? "http://localhost:4100";
   const webUrl = deps.webUrl ?? "http://localhost:3000";
   const mcp = deps.mcp ?? makeRealMcp({ db, vault, gatewayUrl });
@@ -123,9 +138,15 @@ export function createGatewayServer(deps: {
       );
       if (!creds) continue;
       try {
-        for (const t of await mcp.listTools(connector, creds)) mcpEntries.push(t);
+        const listed = withDeadline(
+          mcp.listTools(connector, creds),
+          catalogTimeoutMs,
+          `listTools timed out for ${connector.name}`,
+        );
+        for (const t of await listed) mcpEntries.push(t);
       } catch (err) {
-        // not_connected is expected (unconfigured OAuth connector) — skip quietly; log real failures.
+        // not_connected is expected (unconfigured OAuth connector) — skip quietly; log real failures
+        // (including a discovery timeout, so a stalled upstream is visible in the logs).
         if (!(err instanceof NotConnectedError))
           console.warn(`[gateway] listTools failed for ${connector.name}:`, err);
       }

@@ -1,12 +1,12 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { makeVault } from "@gilly/core";
-import { createDb, getAgent } from "@gilly/db";
+import { createDb, getAgent, setAdmin, upsertUserBySlackId } from "@gilly/db";
 import { LocalRuntimeProvider } from "@gilly/runtime";
 import type { Channel } from "./channels/channel.ts";
 import { createSlackManager } from "./channels/slack-manager.ts";
 import { createWebChannel } from "./channels/web.ts";
-import { seedAgents } from "./config.ts";
+import { syncAgents } from "./config.ts";
 import { createEngine } from "./engine.ts";
 import { LocalSkillStore } from "./stores/local-skill-store.ts";
 
@@ -28,9 +28,14 @@ if (!vaultKey) throw new Error("GILLY_VAULT_KEY is required (encrypts Slack conn
 
 mkdirSync(dirname(DATABASE_PATH), { recursive: true });
 const db = createDb(DATABASE_PATH);
-seedAgents(db, AGENTS_DIR); // first run only: import config/agents/*.json into the DB
+syncAgents(db, AGENTS_DIR); // every boot: upsert config/agents/*.json into the DB (files win)
 const skillStore = new LocalSkillStore(SKILLS_DIR);
 const vault = makeVault(vaultKey);
+
+// Web chat has no auth yet: every web request runs as one shared admin user, so it gets full
+// access to whatever an agent's connectors allow. Replace with real identity when web auth lands.
+const webUser = upsertUserBySlackId(db, { slackUserId: "web", name: "Web (shared)" });
+setAdmin(db, webUser.id, true);
 
 const runtime = new LocalRuntimeProvider(HARNESS_URL);
 const engine = createEngine({
@@ -56,6 +61,7 @@ const channels: Channel[] = [
     adminToken: GILLY_ADMIN_TOKEN,
     vault,
     slackManager: slack,
+    webUserId: webUser.id,
   }),
   slack,
 ];

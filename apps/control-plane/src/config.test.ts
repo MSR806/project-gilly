@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDb, listAgents } from "@gilly/db";
-import { loadAgents, loadSkills, seedAgents } from "./config.ts";
+import { createAgent, createDb, getAgent, listAgents } from "@gilly/db";
+import { loadAgents, loadSkills, syncAgents } from "./config.ts";
 
 const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
 const agent = { id: "echo", name: "Echo", model: "claude-sonnet-4-5", systemPrompt: "Be terse." };
@@ -37,16 +37,38 @@ test("loadSkills bundles a folder's files; requires SKILL.md", () => {
   expect(() => loadSkills(bad)).toThrow(/SKILL.md/);
 });
 
-test("seedAgents imports config on an empty DB, then is a no-op", () => {
+test("syncAgents upserts config on every boot: new files added, existing overwritten", () => {
   const dir = tmp("gilly-agents-");
   writeFileSync(join(dir, "echo.json"), JSON.stringify(agent));
   const db = createDb(":memory:");
 
-  seedAgents(db, dir);
+  syncAgents(db, dir);
   expect(listAgents(db).map((a) => a.id)).toEqual(["echo"]);
 
-  // Second run does not re-import (no throw, count unchanged) even if files change.
+  // A newly shipped config file is imported; an edited one overwrites the DB row.
   writeFileSync(join(dir, "extra.json"), JSON.stringify({ ...agent, id: "extra" }));
-  seedAgents(db, dir);
-  expect(listAgents(db).map((a) => a.id)).toEqual(["echo"]);
+  writeFileSync(join(dir, "echo.json"), JSON.stringify({ ...agent, name: "Echo v2" }));
+  syncAgents(db, dir);
+  expect(
+    listAgents(db)
+      .map((a) => a.id)
+      .sort(),
+  ).toEqual(["echo", "extra"]);
+  expect(getAgent(db, "echo")?.name).toBe("Echo v2");
+});
+
+test("syncAgents leaves DB-only agents (no config file) untouched", () => {
+  const dir = tmp("gilly-agents-");
+  writeFileSync(join(dir, "echo.json"), JSON.stringify(agent));
+  const db = createDb(":memory:");
+  syncAgents(db, dir);
+
+  // An agent created via the UI — present in the DB, absent from config — must survive a resync.
+  createAgent(db, { ...agent, id: "ui-made" });
+  syncAgents(db, dir);
+  expect(
+    listAgents(db)
+      .map((a) => a.id)
+      .sort(),
+  ).toEqual(["echo", "ui-made"]);
 });

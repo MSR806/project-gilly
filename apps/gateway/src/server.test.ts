@@ -7,10 +7,19 @@ import { makeVault } from "./vault.ts";
 const ADMIN = "admin-secret";
 
 /** Build a fresh in-memory gateway with a token carrying `grants`; returns the fetch handler + token. */
-function setup(grants: string[], opts: { ttlMs?: number; mcp?: McpGateway } = {}) {
+function setup(
+  grants: string[],
+  opts: { ttlMs?: number; mcp?: McpGateway; catalogTimeoutMs?: number } = {},
+) {
   const db = createDb(":memory:");
   const vault = makeVault("k");
-  const fetch = createGatewayServer({ db, vault, adminToken: ADMIN, mcp: opts.mcp });
+  const fetch = createGatewayServer({
+    db,
+    vault,
+    adminToken: ADMIN,
+    mcp: opts.mcp,
+    catalogTimeoutMs: opts.catalogTimeoutMs,
+  });
   const token = createGatewayToken(db, {
     runId: "run-1",
     userId: "user-1",
@@ -52,6 +61,110 @@ const post = (
   body: unknown,
 ) => fetch(new Request(`http://x${path}`, { method: "POST", headers, body: JSON.stringify(body) }));
 
+type Agent = {
+  id: string;
+  name: string;
+  model: string;
+  systemPrompt: string;
+  tools?: string[];
+  skills?: string[];
+  connectors?: string[];
+};
+type Skill = {
+  name: string;
+  description: string;
+  content: string;
+  files?: { path: string; contents: string }[];
+};
+
+async function withControlPlane<T>(
+  fn: (state: {
+    agents: Map<string, Agent>;
+    skills: Map<string, Skill>;
+    invocations: { id: string; message: string }[];
+  }) => Promise<T>,
+): Promise<T> {
+  const oldFetch = globalThis.fetch;
+  const oldUrl = process.env.GILLY_CONTROL_PLANE_URL;
+  const state = {
+    agents: new Map<string, Agent>([
+      ["coder", { id: "coder", name: "Coder", model: "sonnet", systemPrompt: "code" }],
+    ]),
+    skills: new Map<string, Skill>([
+      ["tooling", { name: "tooling", description: "Use gateway tools.", content: "# Tools" }],
+    ]),
+    invocations: [] as { id: string; message: string }[],
+  };
+  process.env.GILLY_CONTROL_PLANE_URL = "http://control-plane.test";
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.origin !== "http://control-plane.test") return oldFetch(input, init);
+    const method = init?.method ?? "GET";
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    const json = (value: unknown, status = 200) =>
+      new Response(JSON.stringify(value), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+
+    const invokeAgentId = url.pathname.match(/^\/api\/agents\/([^/]+)\/invoke$/)?.[1];
+    if (invokeAgentId && method === "POST") {
+      state.invocations.push({ id: invokeAgentId, message: body.message });
+      return json({
+        finalText: `ran ${invokeAgentId}`,
+        steps: [{ type: "tool", name: "Read", summary: "README.md" }],
+      });
+    }
+
+    const agentId = url.pathname.match(/^\/api\/agents\/([^/]+)$/)?.[1];
+    if (url.pathname === "/api/agents" && method === "GET") {
+      return json([...state.agents.values()].map(({ id, name, model }) => ({ id, name, model })));
+    }
+    if (url.pathname === "/api/agents" && method === "POST") {
+      state.agents.set(body.id, body);
+      return json(body, 201);
+    }
+    if (agentId && method === "GET") {
+      return state.agents.has(agentId)
+        ? json(state.agents.get(agentId))
+        : json({ error: `Agent "${agentId}" not found` }, 404);
+    }
+    if (agentId && method === "PUT") {
+      state.agents.set(agentId, body);
+      return json(body);
+    }
+
+    const skillName = url.pathname.match(/^\/api\/skills\/([^/]+)$/)?.[1];
+    if (url.pathname === "/api/skills" && method === "GET") {
+      return json(
+        [...state.skills.values()].map(({ name, description }) => ({ name, description })),
+      );
+    }
+    if (url.pathname === "/api/skills" && method === "POST") {
+      state.skills.set(body.name, body);
+      return json({ name: body.name }, 201);
+    }
+    if (skillName && method === "GET") {
+      return state.skills.has(skillName)
+        ? json(state.skills.get(skillName))
+        : json({ error: `Skill "${skillName}" not found` }, 404);
+    }
+    if (skillName && method === "PUT") {
+      state.skills.set(skillName, body);
+      return json({ name: skillName });
+    }
+    return json({ error: "not found" }, 404);
+  }) as typeof fetch;
+
+  try {
+    return await fn(state);
+  } finally {
+    globalThis.fetch = oldFetch;
+    if (oldUrl === undefined) delete process.env.GILLY_CONTROL_PLANE_URL;
+    else process.env.GILLY_CONTROL_PLANE_URL = oldUrl;
+  }
+}
+
 test("catalog returns granted tools only", async () => {
   const { fetch, token } = setup(["echo.*"]);
   const res = await post(fetch, "/catalog", auth(token), {});
@@ -60,6 +173,101 @@ test("catalog returns granted tools only", async () => {
   expect(names).toContain("echo.ping");
   expect(names).not.toContain("github.create_issue");
   expect(tools[0]?.inputSchema).toBeDefined();
+});
+
+test("catalog includes gilly tools when granted", async () => {
+  const { fetch, token } = setup(["gilly.*"]);
+  const res = await post(fetch, "/catalog", auth(token), {});
+  const { tools } = (await res.json()) as { tools: { name: string }[] };
+  expect(tools.map((t) => t.name)).toContain("gilly.create_agent");
+  expect(tools.map((t) => t.name)).toContain("gilly.invoke_agent");
+  expect(tools.map((t) => t.name)).toContain("gilly.update_skill");
+});
+
+test("gilly.update_agent patches through the control-plane API", async () => {
+  await withControlPlane(async ({ agents }) => {
+    const { fetch, token } = setup(["gilly.*"]);
+    const create = await post(fetch, "/invoke", auth(token), {
+      tool: "gilly.create_agent",
+      input: {
+        id: "helper",
+        name: "Helper",
+        model: "sonnet",
+        systemPrompt: "Help.",
+        connectors: ["gilly"],
+      },
+    });
+    expect(await create.json()).toEqual({
+      id: "helper",
+      name: "Helper",
+      model: "sonnet",
+      systemPrompt: "Help.",
+      connectors: ["gilly"],
+    });
+    expect(agents.get("helper")?.connectors).toEqual(["gilly"]);
+
+    const res = await post(fetch, "/invoke", auth(token), {
+      tool: "gilly.update_agent",
+      input: { id: "coder", patch: { name: "Coder 2", connectors: ["gilly"] } },
+    });
+    expect(await res.json()).toEqual({
+      id: "coder",
+      name: "Coder 2",
+      model: "sonnet",
+      systemPrompt: "code",
+      connectors: ["gilly"],
+    });
+    expect(agents.get("coder")?.name).toBe("Coder 2");
+  });
+});
+
+test("gilly.invoke_agent runs an agent through the control-plane API", async () => {
+  await withControlPlane(async ({ invocations }) => {
+    const { fetch, token } = setup(["gilly.*"]);
+    const res = await post(fetch, "/invoke", auth(token), {
+      tool: "gilly.invoke_agent",
+      input: { id: "coder", message: "inspect this" },
+    });
+
+    expect(await res.json()).toEqual({
+      finalText: "ran coder",
+      steps: [{ type: "tool", name: "Read", summary: "README.md" }],
+    });
+    expect(invocations).toEqual([{ id: "coder", message: "inspect this" }]);
+  });
+});
+
+test("gilly.create_skill and update_skill write through the control-plane API", async () => {
+  await withControlPlane(async ({ skills }) => {
+    const { fetch, token } = setup(["gilly.*"]);
+    const create = await post(fetch, "/invoke", auth(token), {
+      tool: "gilly.create_skill",
+      input: {
+        name: "agent-admin",
+        description: "Manage agents.",
+        content: "# Agent Admin",
+        files: [{ path: "run.ts", contents: "console.log('go')" }],
+      },
+    });
+    expect(await create.json()).toEqual({ name: "agent-admin" });
+    expect(skills.get("agent-admin")?.content).toBe("# Agent Admin");
+    expect(skills.get("agent-admin")?.files).toEqual([
+      { path: "run.ts", contents: "console.log('go')" },
+    ]);
+
+    const update = await post(fetch, "/invoke", auth(token), {
+      tool: "gilly.update_skill",
+      input: { name: "agent-admin", patch: { description: "Manage Gilly agents." } },
+    });
+    expect(await update.json()).toEqual({ name: "agent-admin" });
+    // Patching description alone preserves the existing files (merge over the current skill).
+    expect(skills.get("agent-admin")).toEqual({
+      name: "agent-admin",
+      description: "Manage Gilly agents.",
+      content: "# Agent Admin",
+      files: [{ path: "run.ts", contents: "console.log('go')" }],
+    });
+  });
 });
 
 test("invoke echo.ping returns result and writes a tool_calls row", async () => {
@@ -207,6 +415,23 @@ test("catalog lists mcp tools when creds present and granted", async () => {
   const res = await post(fetch, "/catalog", auth(token), {});
   const { tools } = (await res.json()) as { tools: { name: string }[] };
   expect(tools.map((t) => t.name)).toContain("github.create_issue");
+});
+
+test("catalog skips (does not hang on) an mcp upstream whose listTools stalls", async () => {
+  const hangingMcp: McpGateway = {
+    listTools: () => new Promise(() => {}), // never resolves — a stalled upstream
+    async callTool() {
+      return {};
+    },
+  };
+  const { db, fetch, token, vault } = setup(["github.*"], {
+    mcp: hangingMcp,
+    catalogTimeoutMs: 20,
+  });
+  setCredential(db, "github", "github_pat", vault.encrypt("pat"));
+  const res = await post(fetch, "/catalog", auth(token), {});
+  const { tools } = (await res.json()) as { tools: { name: string }[] };
+  expect(tools.some((t) => t.name.startsWith("github."))).toBe(false); // skipped, not hung
 });
 
 test("invoke mcp tool returns provider result and writes a tool_calls row", async () => {

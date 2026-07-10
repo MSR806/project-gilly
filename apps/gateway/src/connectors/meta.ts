@@ -45,8 +45,13 @@ export const meta = defineConnector({
         const res = await fetch(url, {
           headers: { Authorization: `Bearer ${ctx.creds.access_token}` },
         });
-        const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-        if (!res.ok) return { error: `Meta Graph API failed: ${body?.error?.message ?? `status=${res.status}`}` };
+        const body = (await res.json().catch(() => null)) as {
+          error?: { message?: string };
+        } | null;
+        if (!res.ok)
+          return {
+            error: `Meta Graph API failed: ${body?.error?.message ?? `status=${res.status}`}`,
+          };
         return body;
       },
     }),

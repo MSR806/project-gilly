@@ -18,12 +18,14 @@ services:
       dockerfile: docker/Dockerfile.control-plane
     depends_on:
       - harness
+      - gateway
     env_file:
       - ../apps/control-plane/.env    # GILLY_VAULT_KEY (required), WEB_PORT, ...
     environment:
       # Override .env values that only make sense on the host, not in-network.
       # (environment wins over env_file.)
       HARNESS_URL: http://harness:8080
+      GILLY_GATEWAY_URL: http://gateway:4100
       AGENTS_DIR: /app/config/agents
       SKILLS_DIR: /app/config/skills
       DATABASE_PATH: /data/gilly.db
@@ -32,6 +34,22 @@ services:
       - gilly-data:/data              # SQLite store persists across runs
     ports:
       - "4000:4000"                   # WEB_PORT — keep in sync with apps/control-plane/.env
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gateway
+    env_file:
+      - ../apps/control-plane/.env    # GILLY_VAULT_KEY and GILLY_ADMIN_TOKEN
+    environment:
+      DATABASE_PATH: /data/gilly.db
+      GILLY_GATEWAY_URL: http://gateway:4100
+      GILLY_WEB_URL: http://localhost:3000
+      GILLY_CONTROL_PLANE_URL: http://control-plane:4000
+    volumes:
+      - gilly-data:/data
+    ports:
+      - "4100:4100"
 
   web:
     build:

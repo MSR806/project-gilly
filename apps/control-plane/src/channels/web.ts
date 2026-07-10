@@ -1,4 +1,10 @@
-import { AgentConfig, type SlackConnection, SlackConnectionInput, type Vault } from "@gilly/core";
+import {
+  AgentConfig,
+  type SkillFile,
+  type SlackConnection,
+  SlackConnectionInput,
+  type Vault,
+} from "@gilly/core";
 import {
   addGrant,
   createAgent,
@@ -16,6 +22,7 @@ import {
   updateAgent,
   updateSlackConnection,
 } from "@gilly/db";
+import type { StreamEvent } from "@gilly/runtime";
 import { WebClient } from "@slack/web-api";
 import { z } from "zod";
 import type { createEngine, MessageInput } from "../engine.ts";
@@ -64,6 +71,8 @@ type WebDeps = {
   vault?: Vault;
   /** Slack connection manager, so connection CRUD starts/stops sockets live. */
   slackManager?: SlackManager;
+  /** Shared user id every web-chat run is attributed to (web has no auth yet). */
+  webUserId?: string;
 };
 
 /** Public (redacted) view of a connection — tokens are never sent to the browser. */
@@ -110,6 +119,9 @@ export function createWebHandler(deps: WebDeps): (req: Request) => Promise<Respo
       }
       if (method === "POST") return createAgentRoute(req);
     }
+    const invokeAgentId = pathParam(pathname, "/api/agents/", "/invoke");
+    if (invokeAgentId && method === "POST")
+      return invokeAgent(req, invokeAgentId, deps.engine, deps.webUserId);
     const agentId = pathParam(pathname, "/api/agents/");
     if (agentId) {
       if (method === "GET") {
@@ -201,7 +213,8 @@ export function createWebHandler(deps: WebDeps): (req: Request) => Promise<Respo
       }
     }
 
-    if (method === "POST" && pathname === "/api/chat") return chat(req, deps.engine);
+    if (method === "POST" && pathname === "/api/chat")
+      return chat(req, deps.engine, deps.webUserId);
 
     return json({ error: "not found" }, 404);
   }
@@ -426,7 +439,8 @@ function pathParam(pathname: string, prefix: string, suffix = ""): string | unde
   return rest && !rest.includes("/") ? decodeURIComponent(rest) : undefined;
 }
 
-type SkillInput = { name: string; description: string; content: string };
+type SkillInput = { name: string; description: string; content: string; files?: SkillFile[] };
+type InvokeStep = Extract<StreamEvent, { type: "message" | "tool" | "error" }>;
 
 /** Validate a skill request body. `name` is taken from the path on update (body name ignored). */
 async function readSkillFields(
@@ -436,21 +450,60 @@ async function readSkillFields(
   const parsed = await readJson(req);
   if ("error" in parsed) return parsed;
   const body = parsed.body as Partial<SkillInput>;
-  const value = {
+  const value: SkillInput = {
     name: name ?? body.name ?? "",
     description: body.description ?? "",
     content: body.content ?? "",
+    ...(Array.isArray(body.files) ? { files: body.files } : {}),
   };
   if (!value.name || !value.description || !value.content) {
     return { error: json({ error: "name, description and content are required" }, 400) };
   }
+  if (value.files?.some((f) => typeof f?.path !== "string" || typeof f?.contents !== "string")) {
+    return { error: json({ error: "each file needs a string path and contents" }, 400) };
+  }
   return { value };
+}
+
+/** POST /api/agents/:id/invoke → run an agent synchronously and return its final answer + steps. */
+async function invokeAgent(
+  req: Request,
+  agentId: string,
+  engine: { stream: (input: MessageInput) => AsyncIterable<StreamEvent> },
+  userId?: string,
+): Promise<Response> {
+  const parsed = await readJson(req);
+  if ("error" in parsed) return parsed.error;
+  const message =
+    parsed.body && typeof parsed.body === "object" && "message" in parsed.body
+      ? (parsed.body as { message?: unknown }).message
+      : undefined;
+  if (typeof message !== "string" || !message) return json({ error: "message required" }, 400);
+
+  const steps: InvokeStep[] = [];
+  let finalText = "";
+  try {
+    for await (const event of engine.stream({
+      agentId,
+      source: "gateway",
+      sourceKey: `gateway:${crypto.randomUUID()}`,
+      userMessage: message,
+      userId,
+    })) {
+      if (event.type === "done") finalText = event.finalText;
+      else if (event.type !== "token") steps.push(event);
+    }
+  } catch (e) {
+    steps.push({ type: "error", error: String(e) });
+  }
+  return json({ finalText, steps });
 }
 
 /** POST /api/chat → Server-Sent Events of StreamEvents; reuses a conversation via id. */
 async function chat(
   req: Request,
-  engine: { stream: (input: MessageInput) => AsyncIterable<unknown> },
+  engine: { stream: (input: MessageInput) => AsyncIterable<StreamEvent> },
+  userId?: string,
 ): Promise<Response> {
   let body: { agentId?: string; message?: string; conversationId?: string };
   try {
@@ -466,6 +519,7 @@ async function chat(
     source: "web",
     sourceKey: `web:${conversationId}`,
     userMessage: body.message,
+    userId,
   });
 
   const encoder = new TextEncoder();
