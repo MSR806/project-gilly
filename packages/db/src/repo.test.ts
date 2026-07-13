@@ -3,6 +3,7 @@ import type { AgentConfig, SlackConnection } from "@gilly/core";
 import { createDb } from "./client.ts";
 import {
   addGrant,
+  appendRunStep,
   completeRun,
   createAgent,
   createGatewayToken,
@@ -24,6 +25,7 @@ import {
   hasActiveRun,
   listAgents,
   listGrants,
+  listRunSteps,
   listSlackConnections,
   setCredential,
   setSlackConnectionStatus,
@@ -114,6 +116,24 @@ test("run lookup and source recovery fail only unfinished runs from that source"
   expect(getRun(db, abandoned.id)).toMatchObject({ status: "error", error: "restarted" });
   expect(getRun(db, completed.id)).toMatchObject({ status: "completed", output: "ok" });
   expect(getRun(db, untouched.id)?.status).toBe("running");
+});
+
+test("run steps are validated, ordered, and isolated by run", () => {
+  const db = freshDb();
+  const session = getOrCreateSession(db, seed);
+  const first = createRun(db, session.id, "first");
+  const second = createRun(db, session.id, "second");
+
+  appendRunStep(db, first.id, { type: "message", text: "Working" });
+  appendRunStep(db, second.id, { type: "error", error: "boom" });
+  appendRunStep(db, first.id, { type: "tool", name: "Read", summary: "README.md" });
+
+  expect(listRunSteps(db, first.id)).toEqual([
+    { type: "message", text: "Working" },
+    { type: "tool", name: "Read", summary: "README.md" },
+  ]);
+  expect(listRunSteps(db, second.id)).toEqual([{ type: "error", error: "boom" }]);
+  expect(() => appendRunStep(db, first.id, { type: "unknown" } as never)).toThrow();
 });
 
 test("dequeueAllFollowUps drains the whole queue (FIFO) with refs and empties it", () => {

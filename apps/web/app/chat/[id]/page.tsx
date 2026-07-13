@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { parseSseStream } from "./sse";
+import { type Activity, activityFor, parseSseStream } from "./sse";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
 
@@ -24,6 +24,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [activity, setActivity] = useState<Activity>(null);
   const [error, setError] = useState<string | null>(null);
   const conversationId = useRef<string | undefined>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
@@ -39,6 +40,7 @@ export default function ChatPage() {
     setInput("");
     setError(null);
     setStreaming(true);
+    setActivity(activityFor("send"));
     setMessages((prev) => [
       ...prev,
       { role: "user", parts: [{ kind: "text", text: message }] },
@@ -87,6 +89,7 @@ export default function ChatPage() {
       if (cid) conversationId.current = cid;
 
       for await (const event of parseSseStream(res.body)) {
+        setActivity(activityFor(event.type));
         if (event.type === "token") {
           appendText(event.text);
         } else if (event.type === "tool") {
@@ -105,6 +108,7 @@ export default function ChatPage() {
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Chat request failed");
     } finally {
+      setActivity(null);
       setStreaming(false);
     }
   }
@@ -126,7 +130,6 @@ export default function ChatPage() {
         ) : (
           messages.map((m, i) => {
             const isLast = i === messages.length - 1;
-            const empty = m.parts.length === 0;
             return (
               <div
                 key={i}
@@ -136,23 +139,22 @@ export default function ChatPage() {
                     : "self-start border bg-card"
                 }`}
               >
-                {empty
-                  ? streaming && isLast
-                    ? "…"
-                    : ""
-                  : m.parts.map((part, j) =>
-                      part.kind === "text" ? (
-                        <span key={j}>{part.text}</span>
-                      ) : (
-                        <span
-                          key={j}
-                          className="my-1.5 block border-l-2 border-primary py-0.5 pl-2 text-xs opacity-85"
-                        >
-                          🔧 <code className="font-mono">{part.name}</code>
-                          {part.summary ? ` — ${part.summary}` : ""}
-                        </span>
-                      ),
-                    )}
+                {m.parts.map((part, j) =>
+                  part.kind === "text" ? (
+                    <span key={j}>{part.text}</span>
+                  ) : (
+                    <span
+                      key={j}
+                      className="my-1.5 block border-l-2 border-primary py-0.5 pl-2 text-xs opacity-85"
+                    >
+                      🔧 <code className="font-mono">{part.name}</code>
+                      {part.summary ? ` — ${part.summary}` : ""}
+                    </span>
+                  ),
+                )}
+                {streaming && isLast && activity ? (
+                  <span className="block text-xs text-muted-foreground">{activity}</span>
+                ) : null}
               </div>
             );
           })

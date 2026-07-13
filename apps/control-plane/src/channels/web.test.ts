@@ -2,7 +2,14 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { completeRun, createDb, createRun, failRun, getOrCreateSession } from "@gilly/db";
+import {
+  appendRunStep,
+  completeRun,
+  createDb,
+  createRun,
+  failRun,
+  getOrCreateSession,
+} from "@gilly/db";
 import type { createEngine } from "../engine.ts";
 import { LocalSkillStore } from "../stores/local-skill-store.ts";
 import type { SkillStore } from "../stores/skill-store.ts";
@@ -121,6 +128,37 @@ test("POST /api/skills persists a skill with supporting files; GET returns them"
   expect(bad.status).toBe(400);
 });
 
+test("POST /api/chat emits heartbeats while the engine is silent", async () => {
+  const engine = {
+    async *stream() {
+      await Bun.sleep(15);
+      yield { type: "done", finalText: "Done.", harnessSessionId: null } as const;
+    },
+  } as unknown as ReturnType<typeof createEngine>;
+  const fetch = createWebHandler({
+    engine,
+    db: createDb(":memory:"),
+    skillStore: {} as SkillStore,
+    port: 0,
+    heartbeatMs: 5,
+  });
+
+  const response = await fetch(
+    new Request("http://x/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentId: "helper", message: "wait" }),
+    }),
+  );
+  const events = (await response.text())
+    .split("\n\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line.slice("data: ".length)));
+
+  expect(events[0]).toEqual({ type: "heartbeat" });
+  expect(events.at(-1)).toEqual({ type: "done", finalText: "Done.", harnessSessionId: null });
+});
+
 test("POST /api/agents/:id/runs starts a background run; GET /api/runs/:id reads it", async () => {
   let seen: Record<string, unknown> | undefined;
   const engine = {
@@ -180,19 +218,28 @@ test("POST /api/agents/:id/runs starts a background run; GET /api/runs/:id reads
     sourceKey: "gateway:status-test",
   });
   const run = createRun(db, session.id, "do it");
+  appendRunStep(db, run.id, { type: "message", text: "Checking" });
+  expect(await (await fetch(new Request(`http://x/api/runs/${run.id}`))).json()).toEqual({
+    id: run.id,
+    status: "running",
+    steps: [{ type: "message", text: "Checking" }],
+  });
   completeRun(db, run.id, "Done.");
   const status = await fetch(new Request(`http://x/api/runs/${run.id}`));
   expect(await status.json()).toEqual({
     id: run.id,
     status: "completed",
+    steps: [{ type: "message", text: "Checking" }],
     output: "Done.",
   });
   const failed = createRun(db, session.id, "fail");
+  appendRunStep(db, failed.id, { type: "error", error: "boom" });
   failRun(db, failed.id, "boom");
   expect(await (await fetch(new Request(`http://x/api/runs/${failed.id}`))).json()).toEqual({
     id: failed.id,
     status: "error",
-    error: "boom",
+    steps: [{ type: "error", error: "boom" }],
+    runError: "boom",
   });
   expect((await fetch(new Request("http://x/api/runs/missing"))).status).toBe(404);
 });

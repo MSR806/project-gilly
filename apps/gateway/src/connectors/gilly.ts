@@ -76,7 +76,8 @@ export const gilly = defineConnector({
     }),
     defineTool({
       name: "gilly.get_run",
-      description: "Get a background agent run's status, final output, or error by runId.",
+      description:
+        "Get a background agent run's status and accumulated message/tool/error steps, plus final output or runError.",
       input: z.object({ runId: z.string().min(1) }),
       handler: async ({ runId }) => cp(`/api/runs/${encodeURIComponent(runId)}`),
     }),

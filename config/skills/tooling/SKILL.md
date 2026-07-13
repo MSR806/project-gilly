@@ -31,8 +31,12 @@ chained work goes in the script lane so raw payloads never fill your context.
 **Script** — chained calls, or heavy data you only need to summarize. Write a TypeScript file in
 your workspace and run it with Bash. It imports `@gilly/gateway-client`, which is already
 authenticated via the `GILLY_GATEWAY_URL` / `GILLY_GATEWAY_TOKEN` env vars in your sandbox. Chain
-as many calls as you need and **print only the summary** — the raw responses live and die inside
+as many calls as you need and **print only the summary** — the full results live and die inside
 the script.
+
+`invoke()` returns the normal tool value (object, array, string, etc.); consume it directly. Before
+bundling a script into a skill, run it and verify the output contains the expected data — a zero
+exit code alone is not proof that the script is correct.
 
 ```ts
 // cac.ts — run with: bun cac.ts

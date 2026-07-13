@@ -1,5 +1,6 @@
 import type { AgentConfig } from "@gilly/core";
 import {
+  appendRunStep,
   completeRun,
   createGatewayToken,
   createRun,
@@ -176,15 +177,18 @@ export function createEngine(deps: {
           terminal = true;
           stop = true;
         } else if (event.type === "error") {
+          appendRunStep(db, runId, event);
           failRun(db, runId, event.error);
           console.warn(`[engine] run error run=${runId} agent=${agent.id} error=${event.error}`);
           terminal = true;
           stop = true;
         } else if (event.type === "tool") {
+          appendRunStep(db, runId, event);
           console.log(
             `[engine] run tool run=${runId} agent=${agent.id} tool=${event.name} summary=${JSON.stringify(event.summary)}`,
           );
         } else if (event.type === "message") {
+          appendRunStep(db, runId, event);
           console.log(
             `[engine] run message run=${runId} agent=${agent.id} chars=${event.text.length}`,
           );
@@ -196,6 +200,7 @@ export function createEngine(deps: {
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
       if (!terminal) {
+        appendRunStep(db, runId, { type: "error", error });
         failRun(db, runId, error);
         terminal = true;
       }
@@ -209,6 +214,7 @@ export function createEngine(deps: {
       }
       if (!terminal) {
         const error = "Run interrupted before terminal event.";
+        appendRunStep(db, runId, { type: "error", error });
         failRun(db, runId, error);
         console.warn(`[engine] run interrupted run=${runId} agent=${agent.id} error=${error}`);
       }
@@ -247,7 +253,9 @@ export function createEngine(deps: {
         // Background runs persist events in runFrom; there is no channel consumer to render them.
       }
     })().catch((error) => {
-      failRun(db, run.id, error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      appendRunStep(db, run.id, { type: "error", error: message });
+      failRun(db, run.id, message);
       cleanupGatewayTokens(run.id);
       console.warn(
         `[engine] background run failed run=${run.id} agent=${agent.id}:`,

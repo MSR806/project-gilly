@@ -3,7 +3,16 @@ export type StreamEvent =
   | { type: "message"; text: string }
   | { type: "tool"; name: string; summary: string }
   | { type: "done"; finalText: string; harnessSessionId: string | null }
-  | { type: "error"; error: string };
+  | { type: "error"; error: string }
+  | { type: "heartbeat" };
+
+export type Activity = "Thinking…" | "Still working…" | null;
+
+export function activityFor(type: "send" | StreamEvent["type"]): Activity {
+  if (type === "send") return "Thinking…";
+  if (type === "heartbeat") return "Still working…";
+  return null;
+}
 
 export async function* parseSseStream(
   body: ReadableStream<Uint8Array>,

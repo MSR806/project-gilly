@@ -191,15 +191,26 @@ export function materializeSkills(skills: SkillBundle[], cwd: string): void {
 export function summarizeToolUse(input: unknown): string {
   const args = (input ?? {}) as Record<string, unknown>;
   const str = (v: unknown) => (typeof v === "string" ? v : "");
-  const pick =
-    str(args.command) ||
-    str(args.skill) || // Skill tool: the skill being invoked
-    str(args.file_path) ||
-    str(args.path) ||
-    str(args.pattern) ||
-    str(args.url) ||
-    str(args.query) ||
-    str(args.description); // Agent/Task tools: the task description
+  const salient = (value: unknown) => {
+    const item = (value ?? {}) as Record<string, unknown>;
+    return (
+      str(item.command) ||
+      str(item.skill) || // Skill tool: the skill being invoked
+      str(item.file_path) ||
+      str(item.path) ||
+      str(item.pattern) ||
+      str(item.url) ||
+      str(item.query) ||
+      str(item.jql) ||
+      str(item.description) || // Agent/Task tools: the task description
+      str(item.id) ||
+      str(item.runId) ||
+      str(item.name)
+    );
+  };
+  const tool = str(args.tool);
+  const detail = tool ? salient(args.input) : "";
+  const pick = tool ? [tool, detail].filter(Boolean).join(" — ") : salient(args);
   const trimmed = pick.replace(/\s+/g, " ").trim();
   return trimmed.length > 120 ? `${trimmed.slice(0, 117)}…` : trimmed;
 }

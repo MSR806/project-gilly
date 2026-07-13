@@ -173,6 +173,16 @@ test("summarizeToolUse picks the salient arg and truncates", () => {
   expect(summarizeToolUse({ file_path: "src/index.ts" })).toBe("src/index.ts");
   expect(summarizeToolUse({ pattern: "TODO" })).toBe("TODO");
   expect(summarizeToolUse({ description: "review the PR" })).toBe("review the PR");
+  expect(summarizeToolUse({ tool: "gilly.get_agent", input: { id: "coder" } })).toBe(
+    "gilly.get_agent — coder",
+  );
+  expect(summarizeToolUse({ tool: "gilly.list_agents", input: {} })).toBe("gilly.list_agents");
+  expect(
+    summarizeToolUse({
+      tool: "jira.searchJiraIssuesUsingJql",
+      input: { cloudId: "ignored", jql: "project = DEV" },
+    }),
+  ).toBe("jira.searchJiraIssuesUsingJql — project = DEV");
   expect(summarizeToolUse({})).toBe("");
   expect(summarizeToolUse({ command: "x".repeat(200) }).length).toBe(118);
 });

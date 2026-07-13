@@ -76,13 +76,20 @@ type Skill = {
   content: string;
   files?: { path: string; contents: string }[];
 };
+type RunState = {
+  id: string;
+  status: string;
+  steps: ({ type: "message"; text: string } | { type: "error"; error: string })[];
+  output?: string;
+  runError?: string;
+};
 
 async function withControlPlane<T>(
   fn: (state: {
     agents: Map<string, Agent>;
     skills: Map<string, Skill>;
     starts: { id: string; message: string }[];
-    runs: Map<string, { id: string; status: string; output?: string; error?: string }>;
+    runs: Map<string, RunState>;
   }) => Promise<T>,
 ): Promise<T> {
   const oldFetch = globalThis.fetch;
@@ -95,7 +102,7 @@ async function withControlPlane<T>(
       ["tooling", { name: "tooling", description: "Use gateway tools.", content: "# Tools" }],
     ]),
     starts: [] as { id: string; message: string }[],
-    runs: new Map<string, { id: string; status: string; output?: string; error?: string }>(),
+    runs: new Map<string, RunState>(),
   };
   process.env.GILLY_CONTROL_PLANE_URL = "http://control-plane.test";
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
@@ -112,7 +119,7 @@ async function withControlPlane<T>(
     const startAgentId = url.pathname.match(/^\/api\/agents\/([^/]+)\/runs$/)?.[1];
     if (startAgentId && method === "POST") {
       state.starts.push({ id: startAgentId, message: body.message });
-      state.runs.set("run-1", { id: "run-1", status: "running" });
+      state.runs.set("run-1", { id: "run-1", status: "running", steps: [] });
       return json({ runId: "run-1" }, 202);
     }
     const runId = url.pathname.match(/^\/api\/runs\/([^/]+)$/)?.[1];
@@ -242,6 +249,7 @@ test("gilly.start_agent and get_run use the control-plane background-run API", a
     runs.set("run-1", {
       id: "run-1",
       status: "completed",
+      steps: [{ type: "message", text: "Working" }],
       output: "ran coder",
     });
     const status = await post(fetch, "/invoke", auth(token), {
@@ -251,15 +259,26 @@ test("gilly.start_agent and get_run use the control-plane background-run API", a
     expect(await status.json()).toEqual({
       id: "run-1",
       status: "completed",
+      steps: [{ type: "message", text: "Working" }],
       output: "ran coder",
     });
 
-    runs.set("run-1", { id: "run-1", status: "error", error: "child failed" });
+    runs.set("run-1", {
+      id: "run-1",
+      status: "error",
+      steps: [{ type: "error", error: "child failed" }],
+      runError: "child failed",
+    });
     const failed = await post(fetch, "/invoke", auth(token), {
       tool: "gilly.get_run",
       input: { runId: "run-1" },
     });
-    expect(await failed.json()).toEqual({ id: "run-1", status: "error", error: "child failed" });
+    expect(await failed.json()).toEqual({
+      id: "run-1",
+      status: "error",
+      steps: [{ type: "error", error: "child failed" }],
+      runError: "child failed",
+    });
   });
 });
 

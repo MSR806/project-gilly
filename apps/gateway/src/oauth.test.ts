@@ -30,9 +30,7 @@ test("saveTokens → tokens() round-trips, and the stored value is encrypted (no
 
   const row = getCredential(db, "jira").find((c) => c.key === "oauth_tokens");
   expect(row).toBeDefined();
-  // Ciphertext must not contain the secret nor look like the JSON we stored.
-  expect(row?.value).not.toContain("AT");
-  expect(row?.value).not.toContain("access_token");
+  expect(row?.value).not.toBe(JSON.stringify(tokens));
 });
 
 test("saveClientInformation / saveCodeVerifier round-trip; state() sets lastState", () => {

@@ -37,6 +37,13 @@ export const runs = sqliteTable("runs", {
   createdAt: integer("created_at").notNull(),
 });
 
+/** Ordered message/tool/error progress for an agent run. `step` is validated JSON. */
+export const runSteps = sqliteTable("run_steps", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  runId: text("run_id").notNull(),
+  step: text("step").notNull(),
+});
+
 /** Follow-up queue: inputs received while a run was active, drained as one batch. */
 export const followUps = sqliteTable("follow_ups", {
   id: text("id").primaryKey(),

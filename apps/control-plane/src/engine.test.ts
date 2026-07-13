@@ -7,6 +7,7 @@ import {
   getGatewayToken,
   getOrCreateSession,
   getRun,
+  listRunSteps,
   schema,
   setAdmin,
   upsertUserBySlackId,
@@ -106,6 +107,9 @@ test("start returns immediately and completes the background run", async () => {
     async *invokeStream() {
       try {
         await gate;
+        yield { type: "message", text: "Inspecting" };
+        yield { type: "tool", name: "Read", summary: "README.md" };
+        yield { type: "token", text: "background " };
         yield { type: "done", finalText: "background done", harnessSessionId: null };
       } finally {
         finish();
@@ -123,6 +127,10 @@ test("start returns immediately and completes the background run", async () => {
   release();
   await finished;
   expect(getRun(db, runId)).toMatchObject({ status: "completed", output: "background done" });
+  expect(listRunSteps(db, runId)).toEqual([
+    { type: "message", text: "Inspecting" },
+    { type: "tool", name: "Read", summary: "README.md" },
+  ]);
 });
 
 test("stream fails the run when the consumer stops before a terminal event", async () => {
@@ -144,6 +152,10 @@ test("stream fails the run when the consumer stops before a terminal event", asy
   const [run] = db.select().from(schema.runs).all();
   expect(run?.status).toBe("error");
   expect(run?.error).toBe("Run interrupted before terminal event.");
+  expect(listRunSteps(db, run?.id ?? "")).toEqual([
+    { type: "tool", name: "Read", summary: "README.md" },
+    { type: "error", error: "Run interrupted before terminal event." },
+  ]);
 });
 
 test("stream fails the run when the runtime goes idle before a terminal event", async () => {
@@ -172,6 +184,10 @@ test("stream fails the run when the runtime goes idle before a terminal event", 
   const [run] = db.select().from(schema.runs).all();
   expect(run?.status).toBe("error");
   expect(run?.error).toBe("Run timed out waiting for the agent runtime.");
+  expect(listRunSteps(db, run?.id ?? "")).toEqual([
+    { type: "tool", name: "Read", summary: "README.md" },
+    { type: "error", error: "Run timed out waiting for the agent runtime." },
+  ]);
 });
 
 test("handle streams the primary run and persists the harness session", async () => {

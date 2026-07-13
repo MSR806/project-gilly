@@ -4,7 +4,7 @@
  *
  * Wire contract (matched by the Wave 3 gateway server):
  *   POST ${url}/catalog  { query? }        -> { tools: [{ name, description, inputSchema? }] }
- *   POST ${url}/invoke   { tool, input }    -> the raw tool result (any JSON)
+ *   POST ${url}/invoke   { tool, input }    -> the tool result (any JSON)
  *   Either route may answer with { error } (e.g. "forbidden", "not_connected") — we throw it.
  */
 
@@ -45,7 +45,7 @@ export async function catalog(query?: string, fetchFn: FetchFn = fetch): Promise
   return data.tools;
 }
 
-/** Run one tool and return its raw result. `fetchFn` is injectable only for testing. */
+/** Run one tool and return its result. `fetchFn` is injectable only for testing. */
 export async function invoke(
   tool: string,
   input: unknown,

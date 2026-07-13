@@ -19,6 +19,9 @@ function migrate(sqlite: Database) {
       id TEXT PRIMARY KEY, session_id TEXT NOT NULL, status TEXT NOT NULL,
       input TEXT NOT NULL, output TEXT, error TEXT, created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS run_steps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, step TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS follow_ups (
       id TEXT PRIMARY KEY, session_id TEXT NOT NULL, input TEXT NOT NULL, ref TEXT, created_at INTEGER NOT NULL
     );

@@ -18,6 +18,7 @@ import {
   getSlackConnection,
   listAgents,
   listGrants,
+  listRunSteps,
   listSlackConnections,
   listUsers,
   updateAgent,
@@ -74,6 +75,8 @@ type WebDeps = {
   slackManager?: SlackManager;
   /** Shared user id every web-chat run is attributed to (web has no auth yet). */
   webUserId?: string;
+  /** SSE heartbeat interval; shortened by tests. */
+  heartbeatMs?: number;
 };
 
 /** Public (redacted) view of a connection — tokens are never sent to the browser. */
@@ -142,8 +145,9 @@ export function createWebHandler(deps: WebDeps): (req: Request) => Promise<Respo
         ? json({
             id: run.id,
             status: run.status,
+            steps: listRunSteps(db, run.id),
             ...(run.output !== null ? { output: run.output } : {}),
-            ...(run.error !== null ? { error: run.error } : {}),
+            ...(run.error !== null ? { runError: run.error } : {}),
           })
         : json({ error: `Run "${runId}" not found` }, 404);
     }
@@ -227,7 +231,7 @@ export function createWebHandler(deps: WebDeps): (req: Request) => Promise<Respo
     }
 
     if (method === "POST" && pathname === "/api/chat")
-      return chat(req, deps.engine, deps.webUserId);
+      return chat(req, deps.engine, deps.webUserId, deps.heartbeatMs);
 
     return json({ error: "not found" }, 404);
   }
@@ -505,6 +509,7 @@ async function chat(
   req: Request,
   engine: { stream: (input: MessageInput) => AsyncIterable<StreamEvent> },
   userId?: string,
+  heartbeatMs = 15_000,
 ): Promise<Response> {
   let body: { agentId?: string; message?: string; conversationId?: string };
   try {
@@ -526,6 +531,13 @@ async function chat(
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      const heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode('data: {"type":"heartbeat"}\n\n'));
+        } catch {
+          clearInterval(heartbeat);
+        }
+      }, heartbeatMs);
       try {
         for await (const event of events) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
@@ -534,6 +546,7 @@ async function chat(
         const error = { type: "error", error: String(e) };
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(error)}\n\n`));
       } finally {
+        clearInterval(heartbeat);
         controller.close();
       }
     },

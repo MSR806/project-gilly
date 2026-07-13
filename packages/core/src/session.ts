@@ -1,5 +1,16 @@
+import { z } from "zod";
+
 /** Lifecycle of a single execution attempt. */
 export type RunStatus = "running" | "completed" | "error";
+
+/** Durable progress emitted by a run; tokens and terminal done events are intentionally omitted. */
+export const RunStep = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("message"), text: z.string() }),
+  z.object({ type: z.literal("tool"), name: z.string(), summary: z.string() }),
+  z.object({ type: z.literal("error"), error: z.string() }),
+]);
+
+export type RunStep = z.infer<typeof RunStep>;
 
 /** Durable context for one conversation / unit of work (one Slack thread = one Session). */
 export type Session = {

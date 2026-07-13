@@ -36,6 +36,25 @@ export interface McpGateway {
   ): Promise<unknown>;
 }
 
+/** Turn the common MCP text envelope into the value scripts and direct tools expect. */
+export function normalizeMcpResult(
+  result: { structuredContent?: unknown; content: unknown[] } | { toolResult: unknown },
+): unknown {
+  if ("toolResult" in result) return result.toolResult;
+  if (result.structuredContent !== undefined) return result.structuredContent;
+  if (result.content.length !== 1) return result.content;
+
+  const block = result.content[0];
+  if (!block || typeof block !== "object" || !("text" in block) || typeof block.text !== "string")
+    return result.content;
+
+  try {
+    return JSON.parse(block.text);
+  } catch {
+    return block.text;
+  }
+}
+
 // ponytail: tool discovery is cached in-process only — one connected Client per connector, no DB
 // cache. The vendor-down-resilience DB cache from connectors-and-auth.md is a later add.
 export function makeRealMcp(deps: { db: Db; vault: Vault; gatewayUrl: string }): McpGateway {
@@ -119,7 +138,7 @@ export function makeRealMcp(deps: { db: Db; vault: Vault; gatewayUrl: string }):
           arguments: (args as Record<string, unknown>) ?? {},
         });
         if (res.isError) throw new Error("mcp tool returned isError");
-        return res.content;
+        return normalizeMcpResult(res);
       } catch (err) {
         drop(connector.name);
         throw err;

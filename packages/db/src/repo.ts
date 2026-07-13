@@ -1,4 +1,12 @@
-import { AgentConfig, Grant, type Run, type Session, SlackConnection, User } from "@gilly/core";
+import {
+  AgentConfig,
+  Grant,
+  type Run,
+  RunStep,
+  type Session,
+  SlackConnection,
+  User,
+} from "@gilly/core";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Db } from "./client.ts";
 import {
@@ -7,6 +15,7 @@ import {
   followUps,
   gatewayTokens,
   grants,
+  runSteps,
   runs,
   sessions,
   slackConnections,
@@ -141,6 +150,22 @@ export function createRun(db: Db, sessionId: string, input: string): Run {
 export function getRun(db: Db, id: string): Run | undefined {
   const row = db.select().from(runs).where(eq(runs.id, id)).get();
   return row ? { ...row, status: row.status as Run["status"] } : undefined;
+}
+
+export function appendRunStep(db: Db, runId: string, step: RunStep): void {
+  db.insert(runSteps)
+    .values({ runId, step: JSON.stringify(RunStep.parse(step)) })
+    .run();
+}
+
+export function listRunSteps(db: Db, runId: string): RunStep[] {
+  return db
+    .select({ step: runSteps.step })
+    .from(runSteps)
+    .where(eq(runSteps.runId, runId))
+    .orderBy(asc(runSteps.id))
+    .all()
+    .map(({ step }) => RunStep.parse(JSON.parse(step)));
 }
 
 export function completeRun(db: Db, runId: string, output: string): void {
