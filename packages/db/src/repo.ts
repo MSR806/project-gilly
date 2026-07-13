@@ -1,5 +1,5 @@
 import { AgentConfig, Grant, type Run, type Session, SlackConnection, User } from "@gilly/core";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Db } from "./client.ts";
 import {
   agents,
@@ -138,12 +138,37 @@ export function createRun(db: Db, sessionId: string, input: string): Run {
   return row;
 }
 
+export function getRun(db: Db, id: string): Run | undefined {
+  const row = db.select().from(runs).where(eq(runs.id, id)).get();
+  return row ? { ...row, status: row.status as Run["status"] } : undefined;
+}
+
 export function completeRun(db: Db, runId: string, output: string): void {
   db.update(runs).set({ status: "completed", output }).where(eq(runs.id, runId)).run();
 }
 
 export function failRun(db: Db, runId: string, error: string): void {
   db.update(runs).set({ status: "error", error }).where(eq(runs.id, runId)).run();
+}
+
+/** Fail unfinished runs owned by a channel source after its in-process workers were lost. */
+export function failRunningRunsBySource(db: Db, source: string, error: string): number {
+  const sessionIds = db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(eq(sessions.source, source))
+    .all()
+    .map((session) => session.id);
+  if (!sessionIds.length) return 0;
+  const runIds = db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(and(eq(runs.status, "running"), inArray(runs.sessionId, sessionIds)))
+    .all()
+    .map((run) => run.id);
+  if (!runIds.length) return 0;
+  db.update(runs).set({ status: "error", error }).where(inArray(runs.id, runIds)).run();
+  return runIds.length;
 }
 
 /** Queue a follow-up received while a run was active. `ref` is an opaque caller id. */

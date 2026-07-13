@@ -81,7 +81,8 @@ async function withControlPlane<T>(
   fn: (state: {
     agents: Map<string, Agent>;
     skills: Map<string, Skill>;
-    invocations: { id: string; message: string }[];
+    starts: { id: string; message: string }[];
+    runs: Map<string, { id: string; status: string; output?: string; error?: string }>;
   }) => Promise<T>,
 ): Promise<T> {
   const oldFetch = globalThis.fetch;
@@ -93,7 +94,8 @@ async function withControlPlane<T>(
     skills: new Map<string, Skill>([
       ["tooling", { name: "tooling", description: "Use gateway tools.", content: "# Tools" }],
     ]),
-    invocations: [] as { id: string; message: string }[],
+    starts: [] as { id: string; message: string }[],
+    runs: new Map<string, { id: string; status: string; output?: string; error?: string }>(),
   };
   process.env.GILLY_CONTROL_PLANE_URL = "http://control-plane.test";
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
@@ -107,13 +109,17 @@ async function withControlPlane<T>(
         headers: { "content-type": "application/json" },
       });
 
-    const invokeAgentId = url.pathname.match(/^\/api\/agents\/([^/]+)\/invoke$/)?.[1];
-    if (invokeAgentId && method === "POST") {
-      state.invocations.push({ id: invokeAgentId, message: body.message });
-      return json({
-        finalText: `ran ${invokeAgentId}`,
-        steps: [{ type: "tool", name: "Read", summary: "README.md" }],
-      });
+    const startAgentId = url.pathname.match(/^\/api\/agents\/([^/]+)\/runs$/)?.[1];
+    if (startAgentId && method === "POST") {
+      state.starts.push({ id: startAgentId, message: body.message });
+      state.runs.set("run-1", { id: "run-1", status: "running" });
+      return json({ runId: "run-1" }, 202);
+    }
+    const runId = url.pathname.match(/^\/api\/runs\/([^/]+)$/)?.[1];
+    if (runId && method === "GET") {
+      return state.runs.has(runId)
+        ? json(state.runs.get(runId))
+        : json({ error: `Run "${runId}" not found` }, 404);
     }
 
     const agentId = url.pathname.match(/^\/api\/agents\/([^/]+)$/)?.[1];
@@ -180,7 +186,9 @@ test("catalog includes gilly tools when granted", async () => {
   const res = await post(fetch, "/catalog", auth(token), {});
   const { tools } = (await res.json()) as { tools: { name: string }[] };
   expect(tools.map((t) => t.name)).toContain("gilly.create_agent");
-  expect(tools.map((t) => t.name)).toContain("gilly.invoke_agent");
+  expect(tools.map((t) => t.name)).toContain("gilly.start_agent");
+  expect(tools.map((t) => t.name)).toContain("gilly.get_run");
+  expect(tools.map((t) => t.name)).not.toContain("gilly.invoke_agent");
   expect(tools.map((t) => t.name)).toContain("gilly.update_skill");
 });
 
@@ -221,19 +229,37 @@ test("gilly.update_agent patches through the control-plane API", async () => {
   });
 });
 
-test("gilly.invoke_agent runs an agent through the control-plane API", async () => {
-  await withControlPlane(async ({ invocations }) => {
+test("gilly.start_agent and get_run use the control-plane background-run API", async () => {
+  await withControlPlane(async ({ runs, starts }) => {
     const { fetch, token } = setup(["gilly.*"]);
-    const res = await post(fetch, "/invoke", auth(token), {
-      tool: "gilly.invoke_agent",
+    const start = await post(fetch, "/invoke", auth(token), {
+      tool: "gilly.start_agent",
       input: { id: "coder", message: "inspect this" },
     });
+    expect(await start.json()).toEqual({ runId: "run-1" });
+    expect(starts).toEqual([{ id: "coder", message: "inspect this" }]);
 
-    expect(await res.json()).toEqual({
-      finalText: "ran coder",
-      steps: [{ type: "tool", name: "Read", summary: "README.md" }],
+    runs.set("run-1", {
+      id: "run-1",
+      status: "completed",
+      output: "ran coder",
     });
-    expect(invocations).toEqual([{ id: "coder", message: "inspect this" }]);
+    const status = await post(fetch, "/invoke", auth(token), {
+      tool: "gilly.get_run",
+      input: { runId: "run-1" },
+    });
+    expect(await status.json()).toEqual({
+      id: "run-1",
+      status: "completed",
+      output: "ran coder",
+    });
+
+    runs.set("run-1", { id: "run-1", status: "error", error: "child failed" });
+    const failed = await post(fetch, "/invoke", auth(token), {
+      tool: "gilly.get_run",
+      input: { runId: "run-1" },
+    });
+    expect(await failed.json()).toEqual({ id: "run-1", status: "error", error: "child failed" });
   });
 });
 

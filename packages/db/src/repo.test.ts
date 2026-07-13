@@ -14,10 +14,12 @@ import {
   deleteSlackConnection,
   dequeueAllFollowUps,
   enqueueFollowUp,
+  failRunningRunsBySource,
   getAgent,
   getCredential,
   getGatewayToken,
   getOrCreateSession,
+  getRun,
   getSlackConnection,
   hasActiveRun,
   listAgents,
@@ -93,6 +95,25 @@ test("one active run per session is observable", () => {
   expect(hasActiveRun(db, s.id)).toBe(true);
   completeRun(db, run.id, "done");
   expect(hasActiveRun(db, s.id)).toBe(false);
+});
+
+test("run lookup and source recovery fail only unfinished runs from that source", () => {
+  const db = freshDb();
+  const gateway = getOrCreateSession(db, {
+    agentId: "a",
+    source: "gateway",
+    sourceKey: "gateway:1",
+  });
+  const web = getOrCreateSession(db, { agentId: "a", source: "web", sourceKey: "web:1" });
+  const abandoned = createRun(db, gateway.id, "background");
+  const completed = createRun(db, gateway.id, "done");
+  const untouched = createRun(db, web.id, "chat");
+  completeRun(db, completed.id, "ok");
+
+  expect(failRunningRunsBySource(db, "gateway", "restarted")).toBe(1);
+  expect(getRun(db, abandoned.id)).toMatchObject({ status: "error", error: "restarted" });
+  expect(getRun(db, completed.id)).toMatchObject({ status: "completed", output: "ok" });
+  expect(getRun(db, untouched.id)?.status).toBe("running");
 });
 
 test("dequeueAllFollowUps drains the whole queue (FIFO) with refs and empties it", () => {

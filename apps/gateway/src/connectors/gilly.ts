@@ -64,15 +64,21 @@ export const gilly = defineConnector({
       },
     }),
     defineTool({
-      name: "gilly.invoke_agent",
+      name: "gilly.start_agent",
       description:
-        "Invoke a Gilly agent by id with a message. Returns the final answer and the message/tool/error steps it took.",
+        "Start a Gilly agent in the background. Returns a runId immediately; check it with gilly.get_run.",
       input: z.object({ id: z.string().min(1), message: z.string().min(1) }),
       handler: async ({ id, message }) =>
-        cp(`/api/agents/${encodeURIComponent(id)}/invoke`, {
+        cp(`/api/agents/${encodeURIComponent(id)}/runs`, {
           method: "POST",
           body: JSON.stringify({ message }),
         }),
+    }),
+    defineTool({
+      name: "gilly.get_run",
+      description: "Get a background agent run's status, final output, or error by runId.",
+      input: z.object({ runId: z.string().min(1) }),
+      handler: async ({ runId }) => cp(`/api/runs/${encodeURIComponent(runId)}`),
     }),
     defineTool({
       name: "gilly.list_skills",

@@ -183,14 +183,16 @@ export function createGatewayServer(deps: {
         : ran;
     // A result carrying `error` is a failure; a raw result is success.
     const status = result && typeof result === "object" && "error" in result ? "error" : "ok";
+    const durationMs = Date.now() - started;
     insertToolCall(db, {
       runId,
       userId,
       tool: toolName,
       args: body.input,
-      durationMs: Date.now() - started,
+      durationMs,
       status,
     });
+    console.log(`[gateway] invoke tool=${toolName} status=${status} durationMs=${durationMs}`);
     return json(result);
 
     async function run(): Promise<unknown> {

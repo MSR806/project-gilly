@@ -2,8 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDb } from "@gilly/db";
-import type { StreamEvent } from "@gilly/runtime";
+import { completeRun, createDb, createRun, failRun, getOrCreateSession } from "@gilly/db";
 import type { createEngine } from "../engine.ts";
 import { LocalSkillStore } from "../stores/local-skill-store.ts";
 import type { SkillStore } from "../stores/skill-store.ts";
@@ -122,41 +121,34 @@ test("POST /api/skills persists a skill with supporting files; GET returns them"
   expect(bad.status).toBe(400);
 });
 
-test("POST /api/agents/:id/invoke collects final text and non-token steps", async () => {
+test("POST /api/agents/:id/runs starts a background run; GET /api/runs/:id reads it", async () => {
   let seen: Record<string, unknown> | undefined;
   const engine = {
-    async *stream(input: Record<string, unknown>): AsyncIterable<StreamEvent> {
+    start(input: Record<string, unknown>) {
+      if (input.agentId === "missing") throw new Error("Unknown agent: missing");
       seen = input;
-      yield { type: "message", text: "I will inspect it." };
-      yield { type: "tool", name: "Read", summary: "apps/foo.ts" };
-      yield { type: "token", text: "Done" };
-      yield { type: "done", finalText: "Done.", harnessSessionId: null };
+      return { runId: "run-1" };
     },
   } as ReturnType<typeof createEngine>;
+  const db = createDb(":memory:");
   const fetch = createWebHandler({
     engine,
-    db: createDb(":memory:"),
+    db,
     skillStore: {} as SkillStore,
     port: 0,
     webUserId: "user-1",
   });
 
   const res = await fetch(
-    new Request("http://x/api/agents/helper/invoke", {
+    new Request("http://x/api/agents/helper/runs", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ message: "do it" }),
     }),
   );
 
-  expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({
-    finalText: "Done.",
-    steps: [
-      { type: "message", text: "I will inspect it." },
-      { type: "tool", name: "Read", summary: "apps/foo.ts" },
-    ],
-  });
+  expect(res.status).toBe(202);
+  expect(await res.json()).toEqual({ runId: "run-1" });
   expect(seen).toMatchObject({
     agentId: "helper",
     source: "gateway",
@@ -166,13 +158,43 @@ test("POST /api/agents/:id/invoke collects final text and non-token steps", asyn
   expect(String(seen?.sourceKey).startsWith("gateway:")).toBe(true);
 
   const bad = await fetch(
-    new Request("http://x/api/agents/helper/invoke", {
+    new Request("http://x/api/agents/helper/runs", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({}),
     }),
   );
   expect(bad.status).toBe(400);
+  const missing = await fetch(
+    new Request("http://x/api/agents/missing/runs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "do it" }),
+    }),
+  );
+  expect(missing.status).toBe(404);
+
+  const session = getOrCreateSession(db, {
+    agentId: "helper",
+    source: "gateway",
+    sourceKey: "gateway:status-test",
+  });
+  const run = createRun(db, session.id, "do it");
+  completeRun(db, run.id, "Done.");
+  const status = await fetch(new Request(`http://x/api/runs/${run.id}`));
+  expect(await status.json()).toEqual({
+    id: run.id,
+    status: "completed",
+    output: "Done.",
+  });
+  const failed = createRun(db, session.id, "fail");
+  failRun(db, failed.id, "boom");
+  expect(await (await fetch(new Request(`http://x/api/runs/${failed.id}`))).json()).toEqual({
+    id: failed.id,
+    status: "error",
+    error: "boom",
+  });
+  expect((await fetch(new Request("http://x/api/runs/missing"))).status).toBe(404);
 });
 
 // --- Slack connections: redaction + blank-token-keep (no Slack network needed) ---

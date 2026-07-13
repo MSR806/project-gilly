@@ -18,6 +18,8 @@ import {
 import type { SkillBundle } from "@gilly/harness-protocol";
 import type { RuntimeProvider, StreamEvent } from "@gilly/runtime";
 
+const RUN_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+
 /** One run handed to a conversational channel: the messages it answers, the raw prompt, the stream. */
 export type RunContext = {
   refs: string[];
@@ -63,9 +65,27 @@ export function createEngine(deps: {
   getSkill?: (name: string) => SkillBundle | undefined;
   /** Tooling gateway base URL; when set, runs with matching grants get a per-run gateway token. */
   gatewayUrl?: string;
+  /** Max silence between runtime stream events before the run is failed. */
+  runIdleTimeoutMs?: number;
 }) {
   const { db, runtime, getAgent, gatewayUrl } = deps;
   const getSkill = deps.getSkill ?? (() => undefined);
+  const runIdleTimeoutMs = deps.runIdleTimeoutMs ?? RUN_IDLE_TIMEOUT_MS;
+
+  function withRunTimeout<T>(promise: Promise<T>): Promise<T> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("Run timed out waiting for the agent runtime.")),
+          runIdleTimeoutMs,
+        );
+      }),
+    ]).finally(() => {
+      if (timeout) clearTimeout(timeout);
+    });
+  }
 
   /** Best-effort cleanup of a run's gateway tokens; never breaks the run. */
   function cleanupGatewayTokens(runId: string) {
@@ -94,6 +114,8 @@ export function createEngine(deps: {
     userId?: string,
   ): AsyncGenerator<StreamEvent> {
     let accumulated = "";
+    let terminal = false;
+    let iterator: AsyncIterator<StreamEvent> | undefined;
     try {
       // Resolve instructions (skills) before invoking. May throw on a misconfigured agent
       // (unknown skill name) — caught below and recorded as a failed run.
@@ -122,34 +144,75 @@ export function createEngine(deps: {
         });
         gateway = { url: gatewayUrl, token };
       }
+      console.log(
+        `[engine] run start run=${runId} agent=${agent.id} session=${sessionId} gateway=${grants.join(",") || "-"} input=${JSON.stringify(message.slice(0, 80))}`,
+      );
 
-      const events = runtime.invokeStream({
-        agent,
-        userMessage: message,
-        resumeSessionId: getSessionById(db, sessionId)?.harnessSessionId ?? undefined,
-        // Stable per-Gilly-session workspace, so follow-ups see files earlier runs made.
-        workspace: { provider: "local", handle: sessionId },
-        ...(skillBundles.length ? { skills: skillBundles } : {}),
-        ...(gateway ? { gateway } : {}),
-      });
-      for await (const event of events) {
+      iterator = runtime
+        .invokeStream({
+          agent,
+          userMessage: message,
+          resumeSessionId: getSessionById(db, sessionId)?.harnessSessionId ?? undefined,
+          // Stable per-Gilly-session workspace, so follow-ups see files earlier runs made.
+          workspace: { provider: "local", handle: sessionId },
+          ...(skillBundles.length ? { skills: skillBundles } : {}),
+          ...(gateway ? { gateway } : {}),
+        })
+        [Symbol.asyncIterator]();
+
+      for (;;) {
+        const next = await withRunTimeout(iterator.next());
+        if (next.done) break;
+        const event = next.value;
+        let stop = false;
         if (event.type === "token") {
           accumulated += event.text;
         } else if (event.type === "done") {
           if (event.harnessSessionId) setHarnessSession(db, sessionId, event.harnessSessionId);
           completeRun(db, runId, event.finalText || accumulated);
-          cleanupGatewayTokens(runId);
+          console.log(
+            `[engine] run done run=${runId} agent=${agent.id} outputChars=${(event.finalText || accumulated).length}`,
+          );
+          terminal = true;
+          stop = true;
         } else if (event.type === "error") {
           failRun(db, runId, event.error);
-          cleanupGatewayTokens(runId);
+          console.warn(`[engine] run error run=${runId} agent=${agent.id} error=${event.error}`);
+          terminal = true;
+          stop = true;
+        } else if (event.type === "tool") {
+          console.log(
+            `[engine] run tool run=${runId} agent=${agent.id} tool=${event.name} summary=${JSON.stringify(event.summary)}`,
+          );
+        } else if (event.type === "message") {
+          console.log(
+            `[engine] run message run=${runId} agent=${agent.id} chars=${event.text.length}`,
+          );
         }
         // `tool` events are progress only — passed through to the channel, not persisted.
         yield event;
+        if (stop) break;
       }
     } catch (e) {
-      failRun(db, runId, String(e));
+      const error = e instanceof Error ? e.message : String(e);
+      if (!terminal) {
+        failRun(db, runId, error);
+        terminal = true;
+      }
+      console.warn(`[engine] run error run=${runId} agent=${agent.id} error=${error}`);
+      yield { type: "error", error };
+    } finally {
+      try {
+        void iterator?.return?.();
+      } catch {
+        // Best-effort runtime cancellation; the run row cleanup below is authoritative.
+      }
+      if (!terminal) {
+        const error = "Run interrupted before terminal event.";
+        failRun(db, runId, error);
+        console.warn(`[engine] run interrupted run=${runId} agent=${agent.id} error=${error}`);
+      }
       cleanupGatewayTokens(runId);
-      yield { type: "error", error: String(e) };
     }
   }
 
@@ -167,6 +230,31 @@ export function createEngine(deps: {
     });
     const run = createRun(db, session.id, input.userMessage);
     yield* runFrom(run.id, session.id, agent, input.userMessage, input.userId);
+  }
+
+  /** Start one request-scoped run in the background and return its durable id immediately. */
+  function start(input: MessageInput): { runId: string } {
+    const agent = getAgent(input.agentId);
+    if (!agent) throw new Error(`Unknown agent: ${input.agentId}`);
+    const session = getOrCreateSession(db, {
+      agentId: input.agentId,
+      source: input.source,
+      sourceKey: input.sourceKey,
+    });
+    const run = createRun(db, session.id, input.userMessage);
+    void (async () => {
+      for await (const _ of runFrom(run.id, session.id, agent, input.userMessage, input.userId)) {
+        // Background runs persist events in runFrom; there is no channel consumer to render them.
+      }
+    })().catch((error) => {
+      failRun(db, run.id, error instanceof Error ? error.message : String(error));
+      cleanupGatewayTokens(run.id);
+      console.warn(
+        `[engine] background run failed run=${run.id} agent=${agent.id}:`,
+        String(error),
+      );
+    });
+    return { runId: run.id };
   }
 
   /**
@@ -223,5 +311,5 @@ export function createEngine(deps: {
     return { queued: false };
   }
 
-  return { handle, stream };
+  return { handle, start, stream };
 }

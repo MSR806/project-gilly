@@ -1,7 +1,13 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { makeVault } from "@gilly/core";
-import { createDb, getAgent, setAdmin, upsertUserBySlackId } from "@gilly/db";
+import {
+  createDb,
+  failRunningRunsBySource,
+  getAgent,
+  setAdmin,
+  upsertUserBySlackId,
+} from "@gilly/db";
 import { LocalRuntimeProvider } from "@gilly/runtime";
 import type { Channel } from "./channels/channel.ts";
 import { createSlackManager } from "./channels/slack-manager.ts";
@@ -28,6 +34,12 @@ if (!vaultKey) throw new Error("GILLY_VAULT_KEY is required (encrypts Slack conn
 
 mkdirSync(dirname(DATABASE_PATH), { recursive: true });
 const db = createDb(DATABASE_PATH);
+const abandoned = failRunningRunsBySource(
+  db,
+  "gateway",
+  "Control plane restarted before the run completed.",
+);
+if (abandoned) console.warn(`[engine] failed ${abandoned} abandoned background run(s)`);
 syncAgents(db, AGENTS_DIR); // every boot: upsert config/agents/*.json into the DB (files win)
 const skillStore = new LocalSkillStore(SKILLS_DIR);
 const vault = makeVault(vaultKey);

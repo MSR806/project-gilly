@@ -6,6 +6,8 @@ import {
   enqueueFollowUp,
   getGatewayToken,
   getOrCreateSession,
+  getRun,
+  schema,
   setAdmin,
   upsertUserBySlackId,
 } from "@gilly/db";
@@ -84,6 +86,92 @@ test("stream yields an error event for an unknown agent", async () => {
 
   const got = await collect(engine.stream({ ...baseInput, agentId: "nope", userMessage: "hi" }));
   expect(got).toEqual([{ type: "error", error: "Unknown agent: nope" }]);
+});
+
+test("start returns immediately and completes the background run", async () => {
+  const db = createDb(":memory:");
+  let release: () => void = () => {};
+  let finish: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const finished = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const runtime: RuntimeProvider = {
+    name: "fake",
+    async invoke() {
+      return { status: "completed", finalText: "", harnessSessionId: null, error: null };
+    },
+    async *invokeStream() {
+      try {
+        await gate;
+        yield { type: "done", finalText: "background done", harnessSessionId: null };
+      } finally {
+        finish();
+      }
+    },
+    async healthy() {
+      return true;
+    },
+  };
+  const engine = createEngine({ db, runtime, getAgent });
+
+  const { runId } = engine.start({ ...baseInput, source: "gateway", userMessage: "work" });
+  expect(getRun(db, runId)?.status).toBe("running");
+
+  release();
+  await finished;
+  expect(getRun(db, runId)).toMatchObject({ status: "completed", output: "background done" });
+});
+
+test("stream fails the run when the consumer stops before a terminal event", async () => {
+  const db = createDb(":memory:");
+  const engine = createEngine({
+    db,
+    runtime: fakeRuntime(
+      { status: "completed", finalText: "", harnessSessionId: null, error: null },
+      [
+        { type: "tool", name: "Read", summary: "README.md" },
+        { type: "done", finalText: "late", harnessSessionId: null },
+      ],
+    ),
+    getAgent,
+  });
+
+  for await (const _ of engine.stream({ ...baseInput, userMessage: "hi" })) break;
+
+  const [run] = db.select().from(schema.runs).all();
+  expect(run?.status).toBe("error");
+  expect(run?.error).toBe("Run interrupted before terminal event.");
+});
+
+test("stream fails the run when the runtime goes idle before a terminal event", async () => {
+  const db = createDb(":memory:");
+  const runtime: RuntimeProvider = {
+    name: "fake",
+    async invoke() {
+      return { status: "completed", finalText: "", harnessSessionId: null, error: null };
+    },
+    async *invokeStream() {
+      yield { type: "tool", name: "Read", summary: "README.md" };
+      await new Promise(() => {});
+    },
+    async healthy() {
+      return true;
+    },
+  };
+  const engine = createEngine({ db, runtime, getAgent, runIdleTimeoutMs: 5 });
+
+  const got = await collect(engine.stream({ ...baseInput, userMessage: "hi" }));
+
+  expect(got).toEqual([
+    { type: "tool", name: "Read", summary: "README.md" },
+    { type: "error", error: "Run timed out waiting for the agent runtime." },
+  ]);
+  const [run] = db.select().from(schema.runs).all();
+  expect(run?.status).toBe("error");
+  expect(run?.error).toBe("Run timed out waiting for the agent runtime.");
 });
 
 test("handle streams the primary run and persists the harness session", async () => {
