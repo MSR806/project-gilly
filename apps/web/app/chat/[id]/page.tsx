@@ -1,24 +1,34 @@
 "use client";
 
-import { ChevronLeft, LoaderCircle, SendHorizontal, Wrench } from "lucide-react";
+import {
+  AlertCircle,
+  Bot,
+  ChevronLeft,
+  History,
+  LoaderCircle,
+  PanelRightClose,
+  PanelRightOpen,
+  Plus,
+  SendHorizontal,
+  Wrench,
+} from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  type ConversationSummary,
+  type HistoryRun,
+  type Message,
+  messagesFromRuns,
+  type Part,
+} from "./history";
 import { type Activity, activityFor, parseSseStream } from "./sse";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
-
-/** Ordered pieces of one message: text segments and tool calls, in arrival order. */
-type Part = { kind: "text"; text: string } | { kind: "tool"; name: string; summary: string };
-
-type Message = {
-  role: "user" | "assistant";
-  parts: Part[];
-};
 
 export function Markdown({ children }: { children: string }) {
   return (
@@ -45,15 +55,23 @@ export function Markdown({ children }: { children: string }) {
   );
 }
 
-export default function ChatPage() {
+function ChatPageContent() {
   const params = useParams<{ id: string }>();
   const agentId = params.id;
+  const router = useRouter();
+  const requestedConversationId = useSearchParams().get("conversation") ?? undefined;
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [agentName, setAgentName] = useState<string | undefined>();
+  const [activeConversationId, setActiveConversationId] = useState<string | undefined>();
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [activity, setActivity] = useState<Activity>(null);
   const [error, setError] = useState<string | null>(null);
   const conversationId = useRef<string | undefined>(undefined);
+  const loadedConversationKey = useRef<string | undefined>(undefined);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<AbortController>(null);
@@ -63,6 +81,104 @@ export default function ChatPage() {
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [messages]);
+
+  async function refreshConversations() {
+    const res = await fetch(`${API_BASE}/chat/sessions?agentId=${encodeURIComponent(agentId)}`);
+    if (!res.ok) throw new Error(`Could not load conversations (${res.status})`);
+    setConversations((await res.json()) as ConversationSummary[]);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(`${API_BASE}/chat/sessions?agentId=${encodeURIComponent(agentId)}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Could not load conversations (${res.status})`);
+        return res.json() as Promise<ConversationSummary[]>;
+      })
+      .then((items) => {
+        if (!cancelled) setConversations(items);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load history");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAgentName(undefined);
+    void fetch(`${API_BASE}/agents/${encodeURIComponent(agentId)}`)
+      .then((res) => (res.ok ? (res.json() as Promise<{ name: string }>) : undefined))
+      .then((agent) => {
+        if (!cancelled && agent?.name) setAgentName(agent.name);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId]);
+
+  useEffect(() => {
+    if (!requestedConversationId) {
+      conversationId.current = undefined;
+      loadedConversationKey.current = undefined;
+      setActiveConversationId(undefined);
+      setMessages([]);
+      setHistoryLoading(false);
+      return;
+    }
+
+    const key = `${agentId}:${requestedConversationId}`;
+    if (loadedConversationKey.current === key) return;
+    loadedConversationKey.current = key;
+    conversationId.current = requestedConversationId;
+    setActiveConversationId(requestedConversationId);
+    setHistoryLoading(true);
+    setError(null);
+    const request = new AbortController();
+    let cancelled = false;
+    void fetch(
+      `${API_BASE}/chat/sessions/${encodeURIComponent(requestedConversationId)}?agentId=${encodeURIComponent(agentId)}`,
+      { signal: request.signal },
+    )
+      .then((res) => {
+        if (!res.ok) throw new Error(`Could not load conversation (${res.status})`);
+        return res.json() as Promise<{ runs: HistoryRun[] }>;
+      })
+      .then(({ runs }) => {
+        if (!cancelled) setMessages(messagesFromRuns(runs));
+      })
+      .catch((err: unknown) => {
+        if (!cancelled && !(err instanceof Error && err.name === "AbortError")) {
+          if (loadedConversationKey.current === key) loadedConversationKey.current = undefined;
+          setError(err instanceof Error ? err.message : "Could not load conversation");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      request.abort();
+    };
+  }, [agentId, requestedConversationId]);
+
+  function newChat() {
+    conversationId.current = undefined;
+    loadedConversationKey.current = undefined;
+    setActiveConversationId(undefined);
+    setMessages([]);
+    setError(null);
+    setHistoryOpen(false);
+    router.push(`/chat/${encodeURIComponent(agentId)}`);
+  }
+
+  function openConversation(id: string) {
+    setHistoryOpen(false);
+    router.push(`/chat/${encodeURIComponent(agentId)}?conversation=${encodeURIComponent(id)}`);
+  }
 
   async function send() {
     const input = inputRef.current;
@@ -121,7 +237,14 @@ export default function ChatPage() {
       }
 
       const cid = res.headers.get("x-conversation-id");
-      if (cid) conversationId.current = cid;
+      if (cid) {
+        conversationId.current = cid;
+        loadedConversationKey.current = `${agentId}:${cid}`;
+        setActiveConversationId(cid);
+        router.replace(
+          `/chat/${encodeURIComponent(agentId)}?conversation=${encodeURIComponent(cid)}`,
+        );
+      }
 
       for await (const event of parseSseStream(res.body)) {
         setActivity(activityFor(event.type));
@@ -148,11 +271,12 @@ export default function ChatPage() {
       requestRef.current = null;
       setActivity(null);
       setStreaming(false);
+      void refreshConversations().catch(() => undefined);
     }
   }
 
   return (
-    <div className="flex h-[calc(100svh-3.5rem-3rem)] min-h-[32rem] flex-col overflow-hidden bg-background text-foreground">
+    <div className="flex h-[calc(100svh-5rem)] min-h-[32rem] flex-col overflow-hidden bg-background text-foreground md:h-[calc(100svh-3rem)]">
       <div className="flex shrink-0 items-center justify-between pb-4 text-sm text-muted-foreground">
         <Link
           href="/agents"
@@ -161,107 +285,241 @@ export default function ChatPage() {
           <ChevronLeft className="size-4" />
           Agents
         </Link>
-        <span className="truncate rounded-full bg-muted px-3 py-1.5">
-          Agent <code className="font-mono text-xs text-foreground">{agentId}</code>
-        </span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex min-w-0 items-center gap-2 rounded-full bg-muted px-3 py-1.5">
+            <Bot className="size-3.5 shrink-0 text-foreground" />
+            <span className="truncate font-medium text-foreground">{agentName ?? agentId}</span>
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            className="md:hidden"
+            aria-label="Open conversation history"
+            aria-expanded={historyOpen}
+            aria-controls="conversation-history"
+            onClick={() => setHistoryOpen((open) => !open)}
+          >
+            <History />
+          </Button>
+        </div>
       </div>
 
-      <div ref={listRef} className="flex flex-1 flex-col gap-8 overflow-y-auto px-1 py-4">
-        {messages.length === 0 ? (
-          <div className="m-auto max-w-sm text-center">
-            <h1 className="text-xl font-medium">What can I help you investigate?</h1>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Ask a question and follow the response and tool activity here.
-            </p>
-          </div>
-        ) : (
-          messages.map((m, i) => {
-            const isLast = i === messages.length - 1;
-            return (
-              <div
-                key={i}
-                className={
-                  m.role === "user"
-                    ? "max-w-[75%] self-end whitespace-pre-wrap break-words rounded-2xl bg-muted px-5 py-3.5 text-[15px] leading-7 text-foreground"
-                    : "w-full space-y-4 text-[15px] leading-7 text-foreground"
-                }
-              >
-                {m.parts.map((part, j) =>
-                  part.kind === "text" ? (
-                    m.role === "assistant" ? (
-                      <Markdown key={j}>{part.text}</Markdown>
-                    ) : (
-                      <p key={j}>{part.text}</p>
-                    )
-                  ) : (
-                    <div
-                      key={j}
-                      className="flex items-start gap-2 text-xs leading-5 text-muted-foreground"
-                    >
-                      <Wrench className="mt-0.5 size-3.5 shrink-0 text-foreground" />
-                      <span>
-                        <code className="font-mono text-[11px] text-foreground">{part.name}</code>
-                        {part.summary ? ` — ${part.summary}` : ""}
-                      </span>
-                    </div>
-                  ),
-                )}
-                {streaming && isLast ? (
-                  <span className="flex items-center justify-end gap-2 pt-1 text-xs text-muted-foreground">
-                    <LoaderCircle className="size-3.5 animate-spin text-primary" />
-                    {activity ?? "Awaiting response…"}
-                  </span>
-                ) : null}
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      <form
-        className="shrink-0 pb-1"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send();
-        }}
-      >
-        {error ? <p className="mb-2 text-sm text-destructive">{error}</p> : null}
-        <div className="rounded-[18px] border border-input bg-card p-3 shadow-sm transition-colors focus-within:border-ring">
-          <Textarea
-            ref={inputRef}
-            disabled={streaming}
-            aria-label="Chat message"
-            placeholder="Ask me anything…"
-            className="max-h-40 min-h-16 resize-none border-0 bg-transparent px-2 py-1 text-base leading-6 shadow-none focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent"
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
+      <div className="relative flex min-h-0 flex-1">
+        {historyOpen ? (
+          <button
+            type="button"
+            aria-label="Close conversation history"
+            className="fixed inset-0 z-10 bg-black/15 md:hidden"
+            onClick={() => setHistoryOpen(false)}
           />
-          <div className="mt-2 flex justify-end">
-            {streaming ? (
+        ) : null}
+        <aside
+          id="conversation-history"
+          className={`fixed inset-y-0 right-0 z-30 h-svh shrink-0 flex-col border-l bg-background py-4 transition-[width] duration-200 ${
+            historyOpen ? "flex w-72 px-4 shadow-xl md:w-64" : "hidden md:flex md:w-12 md:px-2"
+          }`}
+        >
+          <div
+            className={`flex items-center pb-3 text-sm font-medium ${
+              historyOpen ? "justify-between" : "justify-center"
+            }`}
+          >
+            {historyOpen ? (
+              <span className="flex items-center gap-2">
+                <History className="size-4" />
+                Conversations
+              </span>
+            ) : null}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={
+                historyOpen ? "Collapse conversation history" : "Expand conversation history"
+              }
+              aria-expanded={historyOpen}
+              onClick={() => setHistoryOpen((open) => !open)}
+            >
+              {historyOpen ? <PanelRightClose /> : <PanelRightOpen />}
+            </Button>
+          </div>
+          {historyOpen ? (
+            <>
               <Button
                 type="button"
-                className="h-9 gap-2 px-4"
-                onClick={() => requestRef.current?.abort()}
+                variant="outline"
+                className="mb-3 w-full justify-start"
+                onClick={newChat}
+                disabled={streaming}
               >
-                <LoaderCircle className="animate-spin" />
-                Cancel
+                <Plus />
+                New chat
               </Button>
+              <nav className="min-h-0 space-y-1 overflow-y-auto" aria-label="Past conversations">
+                {conversations.map((conversation) => (
+                  <button
+                    type="button"
+                    key={conversation.conversationId}
+                    disabled={streaming}
+                    onClick={() => openConversation(conversation.conversationId)}
+                    className={`w-full rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted disabled:opacity-50 ${
+                      activeConversationId === conversation.conversationId ? "bg-muted" : ""
+                    }`}
+                  >
+                    <span className="block truncate text-sm">{conversation.title}</span>
+                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                      {new Date(conversation.updatedAt).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </span>
+                  </button>
+                ))}
+                {conversations.length === 0 ? (
+                  <p className="px-2 py-3 text-xs leading-5 text-muted-foreground">
+                    Your completed conversations will appear here.
+                  </p>
+                ) : null}
+              </nav>
+            </>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="New chat"
+              onClick={newChat}
+              disabled={streaming}
+            >
+              <Plus />
+            </Button>
+          )}
+        </aside>
+
+        <section className="flex min-w-0 flex-1 flex-col">
+          <div ref={listRef} className="flex flex-1 flex-col gap-8 overflow-y-auto px-1 py-4">
+            {historyLoading ? (
+              <div className="m-auto flex items-center gap-2 text-sm text-muted-foreground">
+                <LoaderCircle className="size-4 animate-spin" />
+                Loading conversation…
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="m-auto max-w-sm text-center">
+                <h1 className="text-xl font-medium">What can I help you investigate?</h1>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Ask a question and follow the response and tool activity here.
+                </p>
+              </div>
             ) : (
-              <Button type="submit" className="h-9 gap-2 px-4">
-                <SendHorizontal />
-                Send
-              </Button>
+              messages.map((message, i) => {
+                const isLast = i === messages.length - 1;
+                return (
+                  <div
+                    key={i}
+                    className={
+                      message.role === "user"
+                        ? "max-w-[75%] self-end whitespace-pre-wrap break-words rounded-2xl bg-muted px-5 py-3.5 text-[15px] leading-7 text-foreground"
+                        : "w-full space-y-4 text-[15px] leading-7 text-foreground"
+                    }
+                  >
+                    {message.parts.map((part, j) => {
+                      if (part.kind === "text") {
+                        return message.role === "assistant" ? (
+                          <Markdown key={j}>{part.text}</Markdown>
+                        ) : (
+                          <p key={j}>{part.text}</p>
+                        );
+                      }
+                      if (part.kind === "error") {
+                        return (
+                          <div key={j} className="flex items-start gap-2 text-sm text-destructive">
+                            <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                            <span>{part.error}</span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div
+                          key={j}
+                          className="flex items-start gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs leading-5 text-muted-foreground"
+                        >
+                          <Wrench className="mt-0.5 size-3.5 shrink-0 text-foreground" />
+                          <span>
+                            <code className="font-mono text-[11px] text-foreground">
+                              {part.name}
+                            </code>
+                            {part.summary ? ` — ${part.summary}` : ""}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {streaming && isLast ? (
+                      <span className="flex items-center justify-end gap-2 pt-1 text-xs text-muted-foreground">
+                        <LoaderCircle className="size-3.5 animate-spin text-primary" />
+                        {activity ?? "Awaiting response…"}
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })
             )}
           </div>
-        </div>
-        <p className="mt-2 text-center text-[11px] text-muted-foreground">
-          AI can make mistakes. Please double-check important responses.
-        </p>
-      </form>
+
+          <form
+            className="shrink-0 pb-1"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void send();
+            }}
+          >
+            {error ? <p className="mb-2 text-sm text-destructive">{error}</p> : null}
+            <div className="rounded-[18px] border border-input bg-card p-3 shadow-sm transition-colors focus-within:border-ring">
+              <Textarea
+                ref={inputRef}
+                disabled={streaming || historyLoading}
+                aria-label="Chat message"
+                placeholder="Ask me anything…"
+                className="max-h-40 min-h-16 resize-none border-0 bg-transparent px-2 py-1 text-base leading-6 shadow-none focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
+              />
+              <div className="mt-2 flex justify-end">
+                {streaming ? (
+                  <Button
+                    type="button"
+                    className="h-9 gap-2 px-4"
+                    onClick={() => requestRef.current?.abort()}
+                  >
+                    <LoaderCircle className="animate-spin" />
+                    Cancel
+                  </Button>
+                ) : (
+                  <Button type="submit" className="h-9 gap-2 px-4" disabled={historyLoading}>
+                    <SendHorizontal />
+                    Send
+                  </Button>
+                )}
+              </div>
+            </div>
+            <p className="mt-2 text-center text-[11px] text-muted-foreground">
+              AI can make mistakes. Please double-check important responses.
+            </p>
+          </form>
+        </section>
+      </div>
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense>
+      <ChatPageContent />
+    </Suspense>
   );
 }

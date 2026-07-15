@@ -24,10 +24,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <SidebarProvider>
           <AppSidebar />
           <SidebarInset>
-            <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
-              <SidebarTrigger className="-ml-1" />
-            </header>
-            <main className="mx-auto w-full max-w-4xl flex-1 p-6">{children}</main>
+            <SidebarTrigger className="fixed top-3 left-3 z-40 md:hidden" />
+            <main className="mx-auto w-full max-w-4xl flex-1 p-6 pt-14 md:p-6">{children}</main>
           </SidebarInset>
         </SidebarProvider>
       </body>

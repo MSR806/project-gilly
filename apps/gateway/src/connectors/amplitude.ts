@@ -7,6 +7,6 @@ export const amplitude = defineMcpConnector({
   auth: {
     kind: "api_key",
     creds: ["amplitude_pat"],
-    inject: (c) => ({ Authorization: `Bearer ${c.amplitude_pat}` }),
+    inject: (c) => ({ Authorization: `Bearer PAT=${c.amplitude_pat}` }),
   },
 });

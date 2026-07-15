@@ -15,10 +15,13 @@ import {
   deleteSlackConnection,
   getAgent,
   getRun,
+  getSessionBySourceKey,
   getSlackConnection,
   listAgents,
   listGrants,
   listRunSteps,
+  listRuns,
+  listSessions,
   listSlackConnections,
   listUsers,
   updateAgent,
@@ -112,7 +115,7 @@ export function createWebHandler(deps: WebDeps): (req: Request) => Promise<Respo
   const { db, skillStore, gatewayUrl, adminToken, vault, slackManager } = deps;
 
   async function fetch(req: Request): Promise<Response> {
-    const { pathname } = new URL(req.url);
+    const { pathname, searchParams } = new URL(req.url);
     const { method } = req;
     if (method === "OPTIONS") return new Response(null, { headers: cors });
 
@@ -230,6 +233,18 @@ export function createWebHandler(deps: WebDeps): (req: Request) => Promise<Respo
       }
     }
 
+    if (method === "GET" && pathname === "/api/chat/sessions") {
+      const agentId = searchParams.get("agentId");
+      return agentId ? json(listChatSessions(agentId)) : json({ error: "agentId required" }, 400);
+    }
+    const conversationId = pathParam(pathname, "/api/chat/sessions/");
+    if (method === "GET" && conversationId) {
+      const agentId = searchParams.get("agentId");
+      return agentId
+        ? getChatSession(agentId, conversationId)
+        : json({ error: "agentId required" }, 400);
+    }
+
     if (method === "POST" && pathname === "/api/chat")
       return chat(req, deps.engine, deps.webUserId, deps.heartbeatMs);
 
@@ -257,6 +272,46 @@ export function createWebHandler(deps: WebDeps): (req: Request) => Promise<Respo
       const message = error instanceof Error ? error.message : String(error);
       return json({ error: message }, message.startsWith("Unknown agent:") ? 404 : 400);
     }
+  }
+
+  /** Summaries for the web chat's conversation picker, most recently active first. */
+  function listChatSessions(agentId: string) {
+    return listSessions(db, { agentId, source: "web" })
+      .map((session) => {
+        const sessionRuns = listRuns(db, session.id);
+        const first = sessionRuns[0];
+        const last = sessionRuns.at(-1);
+        if (!first || !last) return undefined;
+        return {
+          conversationId: session.sourceKey.slice("web:".length),
+          title: first.input.replace(/\s+/g, " ").trim().slice(0, 80),
+          createdAt: session.createdAt,
+          updatedAt: last.createdAt,
+        };
+      })
+      .filter((session) => session !== undefined)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  /** One web conversation with durable user/assistant turns and progress/tool steps. */
+  function getChatSession(agentId: string, conversationId: string): Response {
+    const session = getSessionBySourceKey(db, `web:${conversationId}`);
+    if (session?.source !== "web" || session.agentId !== agentId) {
+      return json({ error: `Conversation "${conversationId}" not found` }, 404);
+    }
+    return json({
+      conversationId,
+      createdAt: session.createdAt,
+      runs: listRuns(db, session.id).map((run) => ({
+        id: run.id,
+        status: run.status,
+        input: run.input,
+        output: run.output,
+        error: run.error,
+        createdAt: run.createdAt,
+        steps: listRunSteps(db, run.id),
+      })),
+    });
   }
 
   /** PUT /api/connectors/:provider/credentials — inject x-admin-token, forward the {key,value} body. */

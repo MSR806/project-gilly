@@ -244,6 +244,66 @@ test("POST /api/agents/:id/runs starts a background run; GET /api/runs/:id reads
   expect((await fetch(new Request("http://x/api/runs/missing"))).status).toBe(404);
 });
 
+test("web chat session history lists conversations and returns turns with tool steps", async () => {
+  const db = createDb(":memory:");
+  const fetch = createWebHandler({
+    engine: {} as ReturnType<typeof createEngine>,
+    db,
+    skillStore: {} as SkillStore,
+    port: 0,
+  });
+  const session = getOrCreateSession(db, {
+    agentId: "helper",
+    source: "web",
+    sourceKey: "web:conversation-1",
+  });
+  const run = createRun(db, session.id, "  Inspect   the build  ");
+  appendRunStep(db, run.id, { type: "message", text: "I’ll inspect the configuration." });
+  appendRunStep(db, run.id, { type: "tool", name: "Read", summary: "package.json" });
+  completeRun(db, run.id, "The build is healthy.");
+  getOrCreateSession(db, {
+    agentId: "helper",
+    source: "slack",
+    sourceKey: "slack:thread-1",
+  });
+
+  const list = await fetch(new Request("http://x/api/chat/sessions?agentId=helper"));
+  expect(await list.json()).toEqual([
+    {
+      conversationId: "conversation-1",
+      title: "Inspect the build",
+      createdAt: session.createdAt,
+      updatedAt: run.createdAt,
+    },
+  ]);
+
+  const detail = await fetch(
+    new Request("http://x/api/chat/sessions/conversation-1?agentId=helper"),
+  );
+  expect(await detail.json()).toEqual({
+    conversationId: "conversation-1",
+    createdAt: session.createdAt,
+    runs: [
+      {
+        id: run.id,
+        status: "completed",
+        input: "  Inspect   the build  ",
+        output: "The build is healthy.",
+        error: null,
+        createdAt: run.createdAt,
+        steps: [
+          { type: "message", text: "I’ll inspect the configuration." },
+          { type: "tool", name: "Read", summary: "package.json" },
+        ],
+      },
+    ],
+  });
+  expect(
+    (await fetch(new Request("http://x/api/chat/sessions/conversation-1?agentId=other"))).status,
+  ).toBe(404);
+  expect((await fetch(new Request("http://x/api/chat/sessions"))).status).toBe(400);
+});
+
 // --- Slack connections: redaction + blank-token-keep (no Slack network needed) ---
 
 import { makeVault } from "@gilly/core";

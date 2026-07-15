@@ -12,6 +12,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarTrigger,
 } from "@/components/ui/sidebar";
 
 const NAV = [
@@ -27,16 +28,21 @@ export function AppSidebar() {
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
   return (
-    <Sidebar>
+    <Sidebar collapsible="icon">
       <SidebarHeader>
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" render={<Link href="/" />}>
+          <SidebarMenuItem className="flex items-center gap-1">
+            <SidebarMenuButton
+              size="lg"
+              className="flex-1 group-data-[collapsible=icon]:hidden"
+              render={<Link href="/" />}
+            >
               <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                 <Bot className="size-4" />
               </div>
               <span className="font-semibold">Gilly</span>
             </SidebarMenuButton>
+            <SidebarTrigger className="shrink-0" />
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>

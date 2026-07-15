@@ -7,7 +7,7 @@ import {
   SlackConnection,
   User,
 } from "@gilly/core";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "./client.ts";
 import {
   agents,
@@ -118,6 +118,21 @@ export function getSessionById(db: Db, id: string): Session | undefined {
   return db.select().from(sessions).where(eq(sessions.id, id)).get();
 }
 
+/** Look up a session by its channel-native conversation key. */
+export function getSessionBySourceKey(db: Db, sourceKey: string): Session | undefined {
+  return db.select().from(sessions).where(eq(sessions.sourceKey, sourceKey)).get();
+}
+
+/** List sessions for one agent/channel, newest first. */
+export function listSessions(db: Db, input: { agentId: string; source: string }): Session[] {
+  return db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.agentId, input.agentId), eq(sessions.source, input.source)))
+    .orderBy(desc(sessions.createdAt))
+    .all();
+}
+
 /** Persist the harness session id so follow-ups resume the same loop. */
 export function setHarnessSession(db: Db, sessionId: string, harnessSessionId: string): void {
   db.update(sessions).set({ harnessSessionId }).where(eq(sessions.id, sessionId)).run();
@@ -150,6 +165,17 @@ export function createRun(db: Db, sessionId: string, input: string): Run {
 export function getRun(db: Db, id: string): Run | undefined {
   const row = db.select().from(runs).where(eq(runs.id, id)).get();
   return row ? { ...row, status: row.status as Run["status"] } : undefined;
+}
+
+/** List every run in a session in conversation order. */
+export function listRuns(db: Db, sessionId: string): Run[] {
+  return db
+    .select()
+    .from(runs)
+    .where(eq(runs.sessionId, sessionId))
+    .orderBy(asc(runs.createdAt))
+    .all()
+    .map((row) => ({ ...row, status: row.status as Run["status"] }));
 }
 
 export function appendRunStep(db: Db, runId: string, step: RunStep): void {

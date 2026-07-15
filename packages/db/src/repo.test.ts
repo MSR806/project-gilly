@@ -21,11 +21,14 @@ import {
   getGatewayToken,
   getOrCreateSession,
   getRun,
+  getSessionBySourceKey,
   getSlackConnection,
   hasActiveRun,
   listAgents,
   listGrants,
   listRunSteps,
+  listRuns,
+  listSessions,
   listSlackConnections,
   setCredential,
   setSlackConnectionStatus,
@@ -88,6 +91,24 @@ test("getOrCreateSession is idempotent on sourceKey", () => {
   const s1 = getOrCreateSession(db, seed);
   const s2 = getOrCreateSession(db, seed);
   expect(s2.id).toBe(s1.id);
+});
+
+test("session history is filtered by agent/source and returns its runs in order", () => {
+  const db = freshDb();
+  const web = getOrCreateSession(db, { agentId: "a", source: "web", sourceKey: "web:one" });
+  getOrCreateSession(db, { agentId: "a", source: "slack", sourceKey: "slack:one" });
+  getOrCreateSession(db, { agentId: "b", source: "web", sourceKey: "web:two" });
+  const first = createRun(db, web.id, "first");
+  const second = createRun(db, web.id, "second");
+  completeRun(db, first.id, "one");
+  completeRun(db, second.id, "two");
+
+  expect(listSessions(db, { agentId: "a", source: "web" })).toEqual([web]);
+  expect(getSessionBySourceKey(db, "web:one")).toEqual(web);
+  expect(listRuns(db, web.id).map(({ input, output }) => ({ input, output }))).toEqual([
+    { input: "first", output: "one" },
+    { input: "second", output: "two" },
+  ]);
 });
 
 test("one active run per session is observable", () => {
