@@ -79,7 +79,11 @@ type Skill = {
 type RunState = {
   id: string;
   status: string;
-  steps: ({ type: "message"; text: string } | { type: "error"; error: string })[];
+  steps: (
+    | { type: "message"; text: string }
+    | { type: "tool"; name: string; summary: string }
+    | { type: "error"; error: string }
+  )[];
   output?: string;
   runError?: string;
 };
@@ -249,7 +253,14 @@ test("gilly.start_agent and get_run use the control-plane background-run API", a
     runs.set("run-1", {
       id: "run-1",
       status: "completed",
-      steps: [{ type: "message", text: "Working" }],
+      steps: [
+        { type: "message", text: "Working" },
+        {
+          type: "tool",
+          name: "Bash",
+          summary: "bun scripts/metrics.ts branch_cpi --slug t6ypbyjup32s",
+        },
+      ],
       output: "ran coder",
     });
     const status = await post(fetch, "/invoke", auth(token), {
@@ -259,7 +270,14 @@ test("gilly.start_agent and get_run use the control-plane background-run API", a
     expect(await status.json()).toEqual({
       id: "run-1",
       status: "completed",
-      steps: [{ type: "message", text: "Working" }],
+      steps: [
+        { type: "message", text: "Working" },
+        {
+          type: "tool",
+          name: "Bash",
+          summary: "bun scripts/metrics.ts branch_cpi --slug t6ypbyjup32s",
+        },
+      ],
       output: "ran coder",
     });
 

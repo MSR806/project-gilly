@@ -1,92 +1,144 @@
 import { expect, test } from "bun:test";
-import { advanceSteps, closeSteps, fallbackText, newStepState, toBlocks } from "./slack-format.ts";
+import {
+  fallbackText,
+  newProgressState,
+  reduceProgress,
+  renderProgress,
+  toSlackMessages,
+} from "./slack-format.ts";
 
-test("toBlocks wraps markdown in a single markdown block", () => {
-  const blocks = toBlocks("**Hello** _world_");
-  expect(blocks).toEqual([{ type: "markdown", text: "**Hello** _world_" }]);
+test("toSlackMessages wraps markdown in one message", () => {
+  expect(toSlackMessages("**Hello** _world_")).toEqual([
+    {
+      blocks: [{ type: "markdown", text: "**Hello** _world_" }],
+      text: "**Hello** _world_",
+    },
+  ]);
 });
 
-test("toBlocks chunks content past the 12k limit into multiple blocks", () => {
-  const big = `${"a".repeat(8000)}\n${"b".repeat(8000)}`;
-  const blocks = toBlocks(big);
-  expect(blocks.length).toBeGreaterThan(1);
-  expect(blocks.every((b) => b.type === "markdown" && b.text.length <= 12000)).toBe(true);
+test("toSlackMessages splits content at message boundaries, not into blocks", () => {
+  const messages = toSlackMessages(`${"a".repeat(8000)}\n\n${"b".repeat(8000)}`);
+  expect(messages).toHaveLength(2);
+  expect(messages.every(({ blocks }) => blocks.length === 1)).toBe(true);
+  expect(
+    messages.every(({ blocks }) =>
+      blocks.every((block) => block.type === "markdown" && block.text.length <= 12000),
+    ),
+  ).toBe(true);
 });
 
-test("toBlocks never produces an empty block", () => {
-  expect(toBlocks("   ")).toEqual([{ type: "markdown", text: "_(no response)_" }]);
+test("toSlackMessages handles the 12k boundary", () => {
+  expect(toSlackMessages("x".repeat(11999))).toHaveLength(1);
+  expect(toSlackMessages("x".repeat(12000))).toHaveLength(1);
+  expect(toSlackMessages("x".repeat(12001))).toHaveLength(2);
+});
+
+test("toSlackMessages closes and reopens fenced code split across messages", () => {
+  const source = `Before\n\n\`\`\`ts\n${"const value = 1;\n".repeat(900)}\`\`\`\n\nAfter`;
+  const messages = toSlackMessages(source);
+  expect(messages.length).toBeGreaterThan(1);
+  const firstText = messages[0]?.blocks[0];
+  const secondText = messages[1]?.blocks[0];
+  expect(firstText?.type === "markdown" ? firstText.text.endsWith("```") : false).toBe(true);
+  expect(secondText?.type === "markdown" ? secondText.text.startsWith("```ts\n") : false).toBe(
+    true,
+  );
+  expect(
+    messages.every(({ blocks }) => {
+      const block = blocks[0];
+      return block?.type === "markdown" && block.text.length <= 12000;
+    }),
+  ).toBe(true);
+});
+
+test("toSlackMessages preserves whitespace at fenced code split boundaries", () => {
+  const source = `\`\`\`text\n${"x".repeat(11800)}    \n${"y".repeat(1000)}\n\`\`\``;
+  const messages = toSlackMessages(source);
+  const first = messages[0]?.blocks[0];
+
+  expect(
+    first?.type === "markdown" ? first.text.includes(`${"x".repeat(20)}    \n\`\`\``) : false,
+  ).toBe(true);
+});
+
+test("toSlackMessages never produces an empty payload", () => {
+  expect(toSlackMessages("   ")).toEqual([
+    {
+      blocks: [{ type: "markdown", text: "_(no response)_" }],
+      text: "_(no response)_",
+    },
+  ]);
 });
 
 test("fallbackText truncates long text", () => {
   expect(fallbackText("short")).toBe("short");
-  expect(fallbackText("x".repeat(500))).toHaveLength(198); // 197 + ellipsis
+  expect(fallbackText("x".repeat(500))).toHaveLength(198);
 });
 
-test("advanceSteps opens an in-progress step for a tool, with the arg summary as details", () => {
-  const { state, chunks } = advanceSteps(newStepState(), {
+test("reduceProgress ignores non-operation events", () => {
+  const state = newProgressState();
+  expect(reduceProgress(state, { type: "token", text: "hello" })).toBe(state);
+  expect(reduceProgress(state, { type: "done", finalText: "done", harnessSessionId: null })).toBe(
+    state,
+  );
+  expect(reduceProgress(state, { type: "error", error: "failed" })).toBe(state);
+});
+
+test("reduceProgress renders a compact tool and narration timeline", () => {
+  const first = reduceProgress(newProgressState(), {
+    type: "message",
+    text: "I’ll inspect the repository.\nThis detail is intentionally omitted.",
+  });
+  const second = reduceProgress(first, {
     type: "tool",
     name: "Read",
     summary: "src/index.ts",
   });
-  expect(chunks).toEqual([
-    {
-      type: "task_update",
-      id: "step-1",
-      title: "Read",
-      status: "in_progress",
-      details: "src/index.ts",
-    },
-  ]);
-  expect(state).toEqual({ count: 1, open: { id: "step-1", title: "Read" } });
-});
-
-test("advanceSteps completes the prior step when the next one opens", () => {
-  const first = advanceSteps(newStepState(), { type: "tool", name: "Read", summary: "" });
-  const second = advanceSteps(first.state, {
-    type: "message",
-    text: "Now I'll run the tests\nand report back",
+  expect(second).toEqual({
+    totalSteps: 2,
+    recentSteps: [
+      {
+        count: 1,
+        groupKey: expect.stringContaining("message:"),
+        title: "I’ll inspect the repository.",
+        unit: "steps",
+      },
+      {
+        count: 1,
+        details: "index.ts",
+        groupKey: "file:read",
+        title: "Read",
+        unit: "reads",
+      },
+    ],
   });
-  expect(second.chunks).toEqual([
-    { type: "task_update", id: "step-1", title: "Read", status: "complete" },
-    // Narration step: first line is the title, the remaining lines are the sub-line.
+  expect(renderProgress(second)).toBe(
+    "Working · 2 steps\n• *I’ll inspect the repository.*\n• *Read* — index.ts",
+  );
+});
+
+test("reduceProgress keeps the full count and groups repeated Slack activities", () => {
+  let state = newProgressState();
+  for (let index = 1; index <= 60; index += 1) {
+    state = reduceProgress(state, { type: "tool", name: "Read", summary: `file-${index}.ts` });
+  }
+
+  expect(state.totalSteps).toBe(60);
+  expect(state.recentSteps).toEqual([
     {
-      type: "task_update",
-      id: "step-2",
-      title: "Now I'll run the tests",
-      status: "in_progress",
-      details: "and report back",
+      count: 60,
+      details: "file-60.ts",
+      groupKey: "file:read",
+      title: "Read",
+      unit: "reads",
     },
   ]);
-  expect(second.state.count).toBe(2);
+  expect(renderProgress(state)).toBe("Working · 60 steps\n• *Read* — file-60.ts · 60 reads");
+  expect(renderProgress(state)).not.toContain("file-59.ts");
 });
 
-test("advanceSteps: a single-line narration has no details (would just repeat the title)", () => {
-  const { chunks } = advanceSteps(newStepState(), { type: "message", text: "Checking the PRs" });
-  expect(chunks).toEqual([
-    { type: "task_update", id: "step-1", title: "Checking the PRs", status: "in_progress" },
-  ]);
-});
-
-test("advanceSteps: a long single-line narration trims the title but keeps the full sub-line", () => {
-  const long = "x".repeat(300);
-  const { chunks } = advanceSteps(newStepState(), { type: "message", text: long });
-  const step = chunks[0] as { title: string; details: string };
-  expect(step.title).toHaveLength(150); // 149 + ellipsis
-  expect(step.details).toBe(long);
-});
-
-test("advanceSteps ignores token/done/error events (no steps)", () => {
-  const start = newStepState();
-  expect(advanceSteps(start, { type: "token", text: "hi" })).toEqual({ state: start, chunks: [] });
-});
-
-test("closeSteps settles the open step (complete, or error)", () => {
-  const { state } = advanceSteps(newStepState(), { type: "tool", name: "Bash", summary: "ls" });
-  expect(closeSteps(state, false)).toEqual([
-    { type: "task_update", id: "step-1", title: "Bash", status: "complete" },
-  ]);
-  expect(closeSteps(state, true)).toEqual([
-    { type: "task_update", id: "step-1", title: "Bash", status: "error" },
-  ]);
-  expect(closeSteps(newStepState(), false)).toEqual([]); // nothing open → nothing to close
+test("renderProgress uses sensible zero and singular copy", () => {
+  expect(renderProgress(newProgressState())).toBe("Working · starting…");
+  const one = reduceProgress(newProgressState(), { type: "tool", name: "Bash", summary: "" });
+  expect(renderProgress(one)).toBe("Working · 1 step\n• *Bash*");
 });

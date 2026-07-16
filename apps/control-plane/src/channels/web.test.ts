@@ -218,18 +218,27 @@ test("POST /api/agents/:id/runs starts a background run; GET /api/runs/:id reads
     sourceKey: "gateway:status-test",
   });
   const run = createRun(db, session.id, "do it");
+  const rawSummary =
+    'bun .claude/skills/marketing-metrics/metrics.ts branch_cpi --slug "t6ypbyjup32s" --start 2026-06-23 --end 2026-06-29';
   appendRunStep(db, run.id, { type: "message", text: "Checking" });
+  appendRunStep(db, run.id, { type: "tool", name: "Bash", summary: rawSummary });
   expect(await (await fetch(new Request(`http://x/api/runs/${run.id}`))).json()).toEqual({
     id: run.id,
     status: "running",
-    steps: [{ type: "message", text: "Checking" }],
+    steps: [
+      { type: "message", text: "Checking" },
+      { type: "tool", name: "Bash", summary: rawSummary },
+    ],
   });
   completeRun(db, run.id, "Done.");
   const status = await fetch(new Request(`http://x/api/runs/${run.id}`));
   expect(await status.json()).toEqual({
     id: run.id,
     status: "completed",
-    steps: [{ type: "message", text: "Checking" }],
+    steps: [
+      { type: "message", text: "Checking" },
+      { type: "tool", name: "Bash", summary: rawSummary },
+    ],
     output: "Done.",
   });
   const failed = createRun(db, session.id, "fail");

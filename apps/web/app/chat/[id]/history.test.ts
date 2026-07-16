@@ -1,7 +1,7 @@
 /// <reference types="bun" />
 
 import { expect, test } from "bun:test";
-import { messagesFromRuns } from "./history";
+import { appendActivityPart, messagesFromRuns, type Part } from "./history";
 
 test("messagesFromRuns rebuilds turns with narration, tools, final output, and failures", () => {
   expect(
@@ -34,11 +34,29 @@ test("messagesFromRuns rebuilds turns with narration, tools, final output, and f
       role: "assistant",
       parts: [
         { kind: "text", text: "I’ll inspect it." },
-        { kind: "tool", name: "Read", summary: "package.json" },
+        { kind: "activity", items: [{ name: "Read", summary: "package.json" }] },
         { kind: "text", text: "It is healthy." },
       ],
     },
     { role: "user", parts: [{ kind: "text", text: "Try again" }] },
     { role: "assistant", parts: [{ kind: "error", error: "Runtime unavailable" }] },
+  ]);
+});
+
+test("appendActivityPart keeps one activity block at the latest tool position", () => {
+  let parts: Part[] = [];
+  parts = appendActivityPart(parts, { name: "Read", summary: "first.ts" });
+  parts.push({ kind: "text", text: "Now checking another file." });
+  parts = appendActivityPart(parts, { name: "Read", summary: "second.ts" });
+
+  expect(parts).toEqual([
+    { kind: "text", text: "Now checking another file." },
+    {
+      kind: "activity",
+      items: [
+        { name: "Read", summary: "first.ts" },
+        { name: "Read", summary: "second.ts" },
+      ],
+    },
   ]);
 });

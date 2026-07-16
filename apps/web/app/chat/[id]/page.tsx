@@ -3,6 +3,7 @@
 import {
   AlertCircle,
   Bot,
+  ChevronDown,
   ChevronLeft,
   History,
   LoaderCircle,
@@ -10,7 +11,6 @@ import {
   PanelRightOpen,
   Plus,
   SendHorizontal,
-  Wrench,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -19,7 +19,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { type ActivityItem, groupActivity } from "./activity";
 import {
+  appendActivityPart,
   type ConversationSummary,
   type HistoryRun,
   type Message,
@@ -52,6 +54,44 @@ export function Markdown({ children }: { children: string }) {
         {children}
       </ReactMarkdown>
     </div>
+  );
+}
+
+export function ActivityBlock({ items, running }: { items: ActivityItem[]; running: boolean }) {
+  const groups = groupActivity(items);
+  const visibleGroups = running ? groups.slice(-5) : groups;
+  const omittedGroups = groups.length - visibleGroups.length;
+  return (
+    <details
+      open={running || undefined}
+      className="group rounded-lg border border-border/60 bg-muted/30 text-xs text-muted-foreground"
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 font-medium text-foreground marker:content-none">
+        {running ? (
+          <LoaderCircle className="size-3.5 shrink-0 animate-spin text-primary" />
+        ) : (
+          <ChevronDown className="size-3.5 shrink-0 -rotate-90 transition-transform group-open:rotate-0" />
+        )}
+        <span>
+          {running ? "Working" : "Activity"} · {items.length}{" "}
+          {items.length === 1 ? "step" : "steps"}
+        </span>
+      </summary>
+      <div className="space-y-1 border-t border-border/60 px-3 py-2">
+        {omittedGroups > 0 ? (
+          <p className="text-muted-foreground/80">{omittedGroups} earlier groups</p>
+        ) : null}
+        {visibleGroups.map((group, index) => (
+          <div
+            key={`${group.label}:${group.detail}:${index}`}
+            className="flex min-w-0 gap-2 leading-5"
+          >
+            <span className="shrink-0 font-medium text-foreground">{group.label}</span>
+            {group.detail ? <span className="min-w-0 truncate">· {group.detail}</span> : null}
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -218,7 +258,7 @@ function ChatPageContent() {
       });
 
     const appendTool = (name: string, summary: string) =>
-      updateAssistant((parts) => [...parts, { kind: "tool", name, summary }]);
+      updateAssistant((parts) => appendActivityPart(parts, { name, summary }));
 
     try {
       const res = await fetch(`${API_BASE}/chat`, {
@@ -414,6 +454,7 @@ function ChatPageContent() {
             ) : (
               messages.map((message, i) => {
                 const isLast = i === messages.length - 1;
+                const hasActivity = message.parts.some((part) => part.kind === "activity");
                 return (
                   <div
                     key={i}
@@ -440,21 +481,10 @@ function ChatPageContent() {
                         );
                       }
                       return (
-                        <div
-                          key={j}
-                          className="flex items-start gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs leading-5 text-muted-foreground"
-                        >
-                          <Wrench className="mt-0.5 size-3.5 shrink-0 text-foreground" />
-                          <span>
-                            <code className="font-mono text-[11px] text-foreground">
-                              {part.name}
-                            </code>
-                            {part.summary ? ` — ${part.summary}` : ""}
-                          </span>
-                        </div>
+                        <ActivityBlock key={j} items={part.items} running={streaming && isLast} />
                       );
                     })}
-                    {streaming && isLast ? (
+                    {streaming && isLast && !hasActivity ? (
                       <span className="flex items-center justify-end gap-2 pt-1 text-xs text-muted-foreground">
                         <LoaderCircle className="size-3.5 animate-spin text-primary" />
                         {activity ?? "Awaiting response…"}

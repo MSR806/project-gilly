@@ -1,113 +1,130 @@
 import type { StreamEvent } from "@gilly/runtime";
-import type { AnyChunk, KnownBlock } from "@slack/types";
+import type { KnownBlock } from "@slack/types";
+import {
+  appendSlackActivity,
+  renderSlackActivity,
+  type SlackActivity,
+  toSlackActivity,
+} from "./slack-activity.ts";
 
-// Slack's `markdown` block renders standard Markdown directly (no mrkdwn conversion),
-// capped at 12k chars per block.
-const MARKDOWN_BLOCK_LIMIT = 12000;
+const MARKDOWN_MESSAGE_LIMIT = 12000;
+const MAX_FENCE_MARKER_LENGTH = 100;
 
-/** Split a string into ≤`size` chunks, preferring to break on a newline. */
-function chunk(text: string, size: number): string[] {
-  const out: string[] = [];
-  let rest = text;
-  while (rest.length > size) {
-    const slice = rest.slice(0, size);
-    const nl = slice.lastIndexOf("\n");
-    const cut = nl > size * 0.5 ? nl : size;
-    out.push(rest.slice(0, cut));
-    rest = rest.slice(cut);
-  }
-  if (rest) out.push(rest);
-  return out;
+type Fence = {
+  character: "`" | "~";
+  length: number;
+  opener: string;
+};
+
+/** One Slack message payload containing a single, size-safe markdown block. */
+export type SlackMessage = { blocks: KnownBlock[]; text: string };
+
+/** Pure progress state: the full count plus only the operations still visible. */
+export type ProgressState = {
+  totalSteps: number;
+  recentSteps: readonly SlackActivity[];
+};
+
+const truncate = (text: string, length: number): string =>
+  text.length > length ? `${text.slice(0, length - 1).trimEnd()}…` : text;
+
+export const newProgressState = (): ProgressState => ({ totalSteps: 0, recentSteps: [] });
+
+/** Retain the total operation count and the three most recent grouped Slack activities. */
+export function reduceProgress(state: ProgressState, event: StreamEvent): ProgressState {
+  if (event.type !== "tool" && event.type !== "message") return state;
+  return {
+    totalSteps: state.totalSteps + 1,
+    recentSteps: appendSlackActivity(state.recentSteps, toSlackActivity(event)),
+  };
 }
 
-/** Render agent Markdown into Block Kit `markdown` blocks (chunked to the size limit). */
-export function toBlocks(markdown: string): KnownBlock[] {
-  const text = markdown.trim() || "_(no response)_";
-  return chunk(text, MARKDOWN_BLOCK_LIMIT).map((t) => ({ type: "markdown", text: t }));
+/** Render the latest progress snapshot for a normal editable Slack message. */
+export function renderProgress(state: ProgressState): string {
+  if (state.totalSteps === 0) return "Working · starting…";
+
+  const summary = `Working · ${state.totalSteps} ${state.totalSteps === 1 ? "step" : "steps"}`;
+  const rows = state.recentSteps.map(renderSlackActivity);
+  return [summary, ...rows].join("\n");
 }
 
-/** Plain-text fallback (Slack notifications / accessibility); truncated. */
+/** Plain-text fallback for Slack notifications and accessibility. */
 export function fallbackText(markdown: string): string {
   const text = markdown.trim();
   return text.length > 200 ? `${text.slice(0, 197)}…` : text || "(no response)";
 }
 
-// --- Plan-block timeline -------------------------------------------------------------------------
-// Progress renders as a Slack plan block: a `plan_update` title with `task_update` steps beneath
-// it. Each tool call / intermediate assistant message becomes one step; the final answer is the
-// message body, not a step.
+function fenceAfter(text: string, initial: Fence | null): Fence | null {
+  let active = initial;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (active) {
+      const close = trimmed.match(/^(`{3,}|~{3,})\s*$/)?.[1];
+      if (close?.[0] === active.character && close.length >= active.length) active = null;
+      continue;
+    }
 
-/** The plan-block header shown above the step timeline. */
-export const PLAN = { working: "Working…", done: "Done", error: "Failed" } as const;
-
-const truncate = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
-
-/**
- * A step's label: tool calls show the tool name (bold) with the arg summary as the sub-line;
- * narration shows its first line as the title and the full text as the sub-line (so nothing is
- * lost to the title trim). `details` is omitted when it would just repeat the title.
- */
-function stepLabel(ev: Extract<StreamEvent, { type: "tool" | "message" }>): {
-  title: string;
-  details?: string;
-} {
-  if (ev.type === "tool")
-    return ev.summary ? { title: ev.name, details: ev.summary } : { title: ev.name };
-  const text = ev.text.trim();
-  const nl = text.indexOf("\n");
-  const firstLine = (nl === -1 ? text : text.slice(0, nl)).trim();
-  const title = truncate(firstLine, 150) || "Thinking…";
-  // Sub-line: the lines after the first; or the whole text when the first line itself was trimmed.
-  const rest = nl === -1 ? "" : text.slice(nl + 1).trim();
-  const sub = firstLine.length > 150 ? text : rest;
-  return sub ? { title, details: truncate(sub, 2000) } : { title };
-}
-
-/** State threaded across a run's timeline: how many steps so far, and the open (in-progress) one. */
-export type StepState = { count: number; open: { id: string; title: string } | null };
-export const newStepState = (): StepState => ({ count: 0, open: null });
-
-/**
- * Advance the timeline for one event: complete the previously-open step and open a new
- * in-progress one. Only `tool`/`message` events produce steps; others yield no chunks.
- * Pure — returns the next state alongside the chunks to append.
- */
-export function advanceSteps(
-  state: StepState,
-  ev: StreamEvent,
-): { state: StepState; chunks: AnyChunk[] } {
-  if (ev.type !== "tool" && ev.type !== "message") return { state, chunks: [] };
-  const chunks: AnyChunk[] = [];
-  if (state.open) {
-    chunks.push({
-      type: "task_update",
-      id: state.open.id,
-      title: state.open.title,
-      status: "complete",
-    });
+    const opening = trimmed.match(/^(`{3,}|~{3,})(.*)$/);
+    const marker = opening?.[1];
+    if (!marker || marker.length > MAX_FENCE_MARKER_LENGTH) continue;
+    const character = marker[0];
+    if (character !== "`" && character !== "~") continue;
+    active = {
+      character,
+      length: marker.length,
+      opener: truncate(trimmed, 200),
+    };
   }
-  const count = state.count + 1;
-  const id = `step-${count}`;
-  const { title, details } = stepLabel(ev);
-  chunks.push({
-    type: "task_update",
-    id,
-    title,
-    status: "in_progress",
-    ...(details ? { details } : {}),
-  });
-  return { state: { count, open: { id, title } }, chunks };
+  return active;
 }
 
-/** Close the timeline: settle the open step as complete (or error). Pure. */
-export function closeSteps(state: StepState, errored: boolean): AnyChunk[] {
-  if (!state.open) return [];
-  return [
-    {
-      type: "task_update",
-      id: state.open.id,
-      title: state.open.title,
-      status: errored ? "error" : "complete",
-    },
-  ];
+function preferredCut(text: string, maximum: number): number {
+  const candidate = text.slice(0, maximum);
+  const paragraph = candidate.lastIndexOf("\n\n");
+  if (paragraph >= maximum / 2) return paragraph + 2;
+  const newline = candidate.lastIndexOf("\n");
+  if (newline >= maximum / 2) return newline + 1;
+  const space = candidate.lastIndexOf(" ");
+  return space >= maximum / 2 ? space + 1 : maximum;
+}
+
+/**
+ * Split Markdown into message-sized strings. When a split lands inside a fenced code block, close
+ * it in the current message and reopen it in the next so each payload renders independently.
+ */
+function splitMarkdown(markdown: string): string[] {
+  const normalized = markdown.trim() || "_(no response)_";
+  const messages: string[] = [];
+  let remaining = normalized;
+  let fence: Fence | null = null;
+
+  while (remaining.length > 0) {
+    const prefix = fence ? `${fence.opener}\n` : "";
+    if (prefix.length + remaining.length <= MARKDOWN_MESSAGE_LIMIT) {
+      messages.push(`${prefix}${remaining}`);
+      break;
+    }
+
+    // Reserve enough space for a newline plus the largest fence marker we recognize.
+    const maximum = MARKDOWN_MESSAGE_LIMIT - prefix.length - MAX_FENCE_MARKER_LENGTH - 1;
+    const cut = preferredCut(remaining, maximum);
+    const original = remaining.slice(0, cut);
+    const nextFence = fenceAfter(original, fence);
+    const suffix = nextFence
+      ? `${original.endsWith("\n") ? "" : "\n"}${nextFence.character.repeat(nextFence.length)}`
+      : "";
+    messages.push(`${prefix}${original}${suffix}`);
+    remaining = remaining.slice(cut);
+    fence = nextFence;
+  }
+
+  return messages;
+}
+
+/** Build one Slack payload per ≤12k Markdown segment, with a notification fallback for each. */
+export function toSlackMessages(markdown: string): SlackMessage[] {
+  return splitMarkdown(markdown).map((text) => ({
+    blocks: [{ type: "markdown", text }],
+    text: fallbackText(text),
+  }));
 }

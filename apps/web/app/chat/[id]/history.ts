@@ -22,13 +22,22 @@ export type ConversationSummary = {
 
 export type Part =
   | { kind: "text"; text: string }
-  | { kind: "tool"; name: string; summary: string }
+  | { kind: "activity"; items: Array<{ name: string; summary: string }> }
   | { kind: "error"; error: string };
 
 export type Message = {
   role: "user" | "assistant";
   parts: Part[];
 };
+
+/** Keep one web activity block, moving it to the latest tool position as a turn progresses. */
+export function appendActivityPart(parts: Part[], item: { name: string; summary: string }): Part[] {
+  const existing = parts.flatMap((part) => (part.kind === "activity" ? part.items : []));
+  return [
+    ...parts.filter((part) => part.kind !== "activity"),
+    { kind: "activity", items: [...existing, item] },
+  ];
+}
 
 /** Rebuild the durable transcript: progress narration/tools first, then the final answer. */
 export function messagesFromRuns(runs: HistoryRun[]): Message[] {
@@ -37,7 +46,8 @@ export function messagesFromRuns(runs: HistoryRun[]): Message[] {
     for (const step of run.steps) {
       if (step.type === "message") parts.push({ kind: "text", text: step.text });
       if (step.type === "tool") {
-        parts.push({ kind: "tool", name: step.name, summary: step.summary });
+        const next = appendActivityPart(parts, { name: step.name, summary: step.summary });
+        parts.splice(0, parts.length, ...next);
       }
     }
     if (run.output) parts.push({ kind: "text", text: run.output });

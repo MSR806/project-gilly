@@ -193,7 +193,7 @@ export function createEngine(deps: {
             `[engine] run message run=${runId} agent=${agent.id} chars=${event.text.length}`,
           );
         }
-        // `tool` events are progress only — passed through to the channel, not persisted.
+        // Progress events are persisted above, then passed through unchanged for channel rendering.
         yield event;
         if (stop) break;
       }
