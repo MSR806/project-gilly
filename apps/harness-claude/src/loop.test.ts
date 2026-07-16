@@ -7,6 +7,7 @@ import type { InvocationRequest } from "@gilly/harness-protocol";
 import {
   buildOptions,
   expandTools,
+  gatewayMcpResult,
   gatewayPost,
   makeGatewayMcpServer,
   materializeSkills,
@@ -200,6 +201,27 @@ test("gatewayPost posts to url+path with a Bearer header and returns ok + parsed
   const headers = seen?.init.headers as Record<string, string>;
   expect(headers.authorization).toBe("Bearer tok");
   expect(seen?.init.body).toBe(JSON.stringify({ query: "x" }));
+});
+
+test("gatewayMcpResult preserves the full structured error for the agent", () => {
+  const result = gatewayMcpResult(true, {
+    error: "user_missing_grant",
+    tool: "echo.ping",
+    message: "Stop and inform the user.",
+  });
+  expect(result).toEqual({
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          error: "user_missing_grant",
+          tool: "echo.ping",
+          message: "Stop and inform the user.",
+        }),
+      },
+    ],
+    isError: true,
+  });
 });
 
 test("makeGatewayMcpServer builds an sdk server named `gateway`", () => {

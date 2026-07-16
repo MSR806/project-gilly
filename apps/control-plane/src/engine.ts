@@ -122,9 +122,8 @@ export function createEngine(deps: {
       // (unknown skill name) — caught below and recorded as a failed run.
       const skillBundles = skillsFor(agent);
 
-      // Effective grants. Admins bypass per-connector grants — they get every tool the agent is
-      // configured to use (its connectors are still the ceiling). Everyone else: their grant
-      // patterns whose connector prefix is in the agent's connectors.
+      // The agent's connectors define catalog visibility. Grants are checked only on invocation,
+      // so an ungranted user can discover a relevant tool and receive a useful access error.
       const conns = new Set(agent.connectors ?? []);
       const user = userId ? getUser(db, userId) : undefined;
       const grants = !user
@@ -135,18 +134,19 @@ export function createEngine(deps: {
               .map((g) => g.toolPattern)
               .filter((p) => conns.has(p.split(".")[0] ?? ""));
       let gateway: { url: string; token: string } | undefined;
-      if (gatewayUrl && userId && grants.length > 0) {
+      if (gatewayUrl && userId && conns.size > 0) {
         const token = createGatewayToken(db, {
           runId,
           userId,
           agentId: agent.id,
+          connectors: [...conns],
           grants,
           ttlMs: 60 * 60 * 1000,
         });
         gateway = { url: gatewayUrl, token };
       }
       console.log(
-        `[engine] run start run=${runId} agent=${agent.id} session=${sessionId} gateway=${grants.join(",") || "-"} input=${JSON.stringify(message.slice(0, 80))}`,
+        `[engine] run start run=${runId} agent=${agent.id} session=${sessionId} connectors=${[...conns].join(",") || "-"} grants=${grants.join(",") || "-"} input=${JSON.stringify(message.slice(0, 80))}`,
       );
 
       iterator = runtime

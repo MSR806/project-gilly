@@ -399,10 +399,17 @@ export function insertToolCall(
 
 type GatewayTokenRow = typeof gatewayTokens.$inferSelect;
 
-/** Mint an opaque token carrying the run's effective grant patterns; returns the token string. */
+/** Mint an opaque token carrying catalog connectors and invocation grants. */
 export function createGatewayToken(
   db: Db,
-  input: { runId: string; userId: string; agentId: string; grants: string[]; ttlMs: number },
+  input: {
+    runId: string;
+    userId: string;
+    agentId: string;
+    connectors: string[];
+    grants: string[];
+    ttlMs: number;
+  },
 ): string {
   const token = crypto.randomUUID();
   db.insert(gatewayTokens)
@@ -411,6 +418,7 @@ export function createGatewayToken(
       runId: input.runId,
       userId: input.userId,
       agentId: input.agentId,
+      connectors: JSON.stringify(input.connectors),
       grants: JSON.stringify(input.grants),
       expiresAt: now() + input.ttlMs,
       createdAt: now(),
@@ -419,13 +427,24 @@ export function createGatewayToken(
   return token;
 }
 
-/** Look up a token with `grants` parsed to `string[]`. Caller checks `expiresAt`. */
+/** Look up a token with its JSON arrays parsed. Caller checks `expiresAt`. */
 export function getGatewayToken(
   db: Db,
   token: string,
-): (Omit<GatewayTokenRow, "grants"> & { grants: string[] }) | undefined {
+):
+  | (Omit<GatewayTokenRow, "connectors" | "grants"> & {
+      connectors: string[];
+      grants: string[];
+    })
+  | undefined {
   const row = db.select().from(gatewayTokens).where(eq(gatewayTokens.token, token)).get();
-  return row ? { ...row, grants: JSON.parse(row.grants) } : undefined;
+  return row
+    ? {
+        ...row,
+        connectors: JSON.parse(row.connectors),
+        grants: JSON.parse(row.grants),
+      }
+    : undefined;
 }
 
 export function deleteGatewayTokensForRun(db: Db, runId: string): void {

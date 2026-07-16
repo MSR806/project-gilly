@@ -8,14 +8,13 @@ description: Use whenever a task needs an external service or internal tool (ana
 Every external and internal tool is reached through **one gateway**. You never hold credentials
 and you never see a provider's full API. You have exactly two tools:
 
-- **`gateway_catalog({ query? })`** — search the tools you're allowed to use. Returns names,
+- **`gateway_catalog({ query? })`** — search the tools connected to this agent. Returns names,
   descriptions, and input schemas. Call this first to discover what exists; pass a `query` to
-  filter (e.g. `"ad spend"`).
+  filter (e.g. `"ad spend"`). Access is checked when you invoke a tool.
 - **`gateway_invoke({ tool, input })`** — run one tool by name and get its result.
 
 Tools are named `connector.tool` (e.g. `branch.query`, `echo.ping`). If a tool you expect isn't in
-the catalog, you haven't been granted it — tell the user to ask an admin for access; don't try to
-work around it.
+the catalog, its connector is not available to this agent.
 
 ## Pick the lane
 
@@ -53,7 +52,10 @@ console.log("CAC:", totalSpend(spend) / countInstalls(installs)); // only the an
 
 `gateway_invoke` returns one of a closed set of errors — read it and act, don't retry blindly:
 
-- `forbidden` — you aren't granted this tool. Tell the user to ask an admin.
+- `user_missing_grant` — stop the task, immediately tell the user they lack access to the named
+  tool, and wait for their response. Do not retry it. If they ask you to ignore it and continue,
+  resume with the other available tools and context; you will not have data from the denied tool.
+- `forbidden` — the tool is outside this agent's connected tools. Do not try to work around it.
 - `not_connected` — the admin hasn't configured this provider's credentials yet. Say so; it's an
   admin task, not something you fix in-conversation.
 - `invalid_input` — your `input` didn't match the tool's schema. Re-check the schema from

@@ -112,12 +112,13 @@ export const slackConnections = sqliteTable("slack_connections", {
   createdAt: integer("created_at").notNull(),
 });
 
-/** Short-lived opaque token minting a run's effective tool catalog. `grants` is JSON `string[]`. */
+/** Short-lived opaque token carrying agent catalog visibility and user invocation grants. */
 export const gatewayTokens = sqliteTable("gateway_tokens", {
   token: text("token").primaryKey(),
   runId: text("run_id").notNull(),
   userId: text("user_id").notNull(),
   agentId: text("agent_id").notNull(),
+  connectors: text("connectors").notNull(),
   grants: text("grants").notNull(),
   expiresAt: integer("expires_at").notNull(),
   createdAt: integer("created_at").notNull(),

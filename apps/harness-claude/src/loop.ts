@@ -63,6 +63,12 @@ const asContent = (value: unknown, isError = false) => ({
   ...(isError ? { isError: true } : {}),
 });
 
+/** Preserve structured gateway errors so the model receives their tool and recovery instructions. */
+export function gatewayMcpResult(ok: boolean, data: unknown) {
+  const error = (data as { error?: unknown } | null)?.error;
+  return asContent(data, !ok || error !== undefined);
+}
+
 /**
  * Expose the tooling gateway as an in-process SDK MCP server named "gateway" with exactly two
  * tools: `gateway_catalog` (discover tools) and `gateway_invoke` (call one). Pure — `fetchFn` is
@@ -101,9 +107,7 @@ export function makeGatewayMcpServer(
         { tool: name, input },
         fetchFn,
       );
-      const error = (data as { error?: unknown } | null)?.error;
-      if (!ok || error !== undefined) return asContent({ error: error ?? data }, true);
-      return asContent(data);
+      return gatewayMcpResult(ok, data);
     },
   );
 

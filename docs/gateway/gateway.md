@@ -25,7 +25,7 @@ The gateway is a peer service, not part of the harness. The harness never holds 
 
 The gateway is exposed to the model as an MCP server with exactly two tools, regardless of how many connectors exist:
 
-- **`gateway_catalog({ query? })`** — search the tools this caller is allowed to use; returns names, descriptions, and input schemas on demand.
+- **`gateway_catalog({ query? })`** — search the tools connected to this agent; returns names, descriptions, and input schemas on demand. User access is checked at invocation.
 - **`gateway_invoke({ tool, input })`** — run one tool, get the result.
 
 Provider schemas (Amplitude's 50 tools, Meta's parameter sprawl) live in the gateway's registry and enter context only when the agent asks for them.
@@ -70,12 +70,12 @@ Two small packages carry the contract:
 
 Two levels, intersected when the control plane mints the run token:
 
-- **Agent level** — agent config gains `connectors: ["amplitude", "branch", ...]`: what this agent may touch at all.
+- **Agent level** — agent config gains `connectors: ["amplitude", "branch", ...]`: what appears in this agent's catalog and what it may touch at all.
 - **User level** — a `grants` table (`userId → tool pattern`): what this user may call. Users are auto-provisioned from Slack and granted access by an admin — see [`identity-and-access.md`](identity-and-access.md).
 
-The token is scoped to `{ userId, agentId, grants }`. Both lanes pass through it, so access holds even inside agent-written scripts. Mechanically it is an **opaque token in a DB table** (gateway and control plane share the SQLite) — checked per call, expired when its run completes; no JWT machinery.
+The token is scoped to `{ userId, agentId, connectors, grants }`. Catalog requests use `connectors`; invoke requests require both a connected tool and a matching user grant. Both lanes pass through the token, so access holds even inside agent-written scripts. Mechanically it is an **opaque token in a DB table** (gateway and control plane share the SQLite) — checked per call, expired when its run completes; no JWT machinery.
 
-Invoke errors form a closed set: `forbidden` (no grant), `not_connected` (admin hasn't configured the provider), `invalid_input` (schema mismatch), `provider_error`, `timeout`. And the direct lane has a **result-size cap (~50KB)**: a larger result is refused with a pointer to the script lane — the cap is what enforces the context discipline, not just the skill's advice.
+Invoke errors form a closed set: `user_missing_grant` (stop and inform the user), `forbidden` (outside the agent's connectors), `not_connected` (admin hasn't configured the provider), `invalid_input` (schema mismatch), `provider_error`, `timeout`. And the direct lane has a **result-size cap (~50KB)**: a larger result is refused with a pointer to the script lane — the cap is what enforces the context discipline, not just the skill's advice.
 
 ## Credentials
 

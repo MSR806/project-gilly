@@ -42,7 +42,8 @@ function migrate(sqlite: Database) {
     );
     CREATE TABLE IF NOT EXISTS gateway_tokens (
       token TEXT PRIMARY KEY, run_id TEXT NOT NULL, user_id TEXT NOT NULL, agent_id TEXT NOT NULL,
-      grants TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL
+      connectors TEXT NOT NULL, grants TEXT NOT NULL, expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS slack_connections (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, agent_id TEXT NOT NULL,
@@ -59,6 +60,12 @@ function migrate(sqlite: Database) {
   // Add `connectors` to agents created before it existed (ignore if already present).
   try {
     sqlite.exec("ALTER TABLE agents ADD COLUMN connectors TEXT;");
+  } catch {
+    // column already exists
+  }
+  // Existing tokens are short-lived; an empty catalog is the safe migration default.
+  try {
+    sqlite.exec("ALTER TABLE gateway_tokens ADD COLUMN connectors TEXT NOT NULL DEFAULT '[]';");
   } catch {
     // column already exists
   }

@@ -6,10 +6,15 @@ import { makeVault } from "./vault.ts";
 
 const ADMIN = "admin-secret";
 
-/** Build a fresh in-memory gateway with a token carrying `grants`; returns the fetch handler + token. */
+/** Build a fresh in-memory gateway with a token carrying connectors and grants. */
 function setup(
   grants: string[],
-  opts: { ttlMs?: number; mcp?: McpGateway; catalogTimeoutMs?: number } = {},
+  opts: {
+    connectors?: string[];
+    ttlMs?: number;
+    mcp?: McpGateway;
+    catalogTimeoutMs?: number;
+  } = {},
 ) {
   const db = createDb(":memory:");
   const vault = makeVault("k");
@@ -24,6 +29,7 @@ function setup(
     runId: "run-1",
     userId: "user-1",
     agentId: "agent-1",
+    connectors: opts.connectors ?? [...new Set(grants.map((grant) => grant.split(".")[0] ?? ""))],
     grants,
     ttlMs: opts.ttlMs ?? 60_000,
   });
@@ -182,7 +188,7 @@ async function withControlPlane<T>(
   }
 }
 
-test("catalog returns granted tools only", async () => {
+test("catalog returns agent-connected tools only", async () => {
   const { fetch, token } = setup(["echo.*"]);
   const res = await post(fetch, "/catalog", auth(token), {});
   const { tools } = (await res.json()) as { tools: { name: string; inputSchema: unknown }[] };
@@ -192,7 +198,7 @@ test("catalog returns granted tools only", async () => {
   expect(tools[0]?.inputSchema).toBeDefined();
 });
 
-test("catalog includes gilly tools when granted", async () => {
+test("catalog includes connected gilly tools", async () => {
   const { fetch, token } = setup(["gilly.*"]);
   const res = await post(fetch, "/catalog", auth(token), {});
   const { tools } = (await res.json()) as { tools: { name: string }[] };
@@ -368,9 +374,33 @@ test("invoke caps a large result by default, but the script lane opts out", asyn
   expect(await full.json()).toEqual({ echoed: big });
 });
 
-test("invoke ungranted tool → forbidden", async () => {
-  const { fetch, token } = setup(["echo.*"]);
-  const res = await post(fetch, "/invoke", auth(token), { tool: "github.create_issue", input: {} });
+test("catalog shows an agent-connected tool without a user grant", async () => {
+  const { fetch, token } = setup([], { connectors: ["echo"] });
+  const res = await post(fetch, "/catalog", auth(token), {});
+  const body = (await res.json()) as { tools: { name: string }[] };
+  expect(body.tools.map((tool) => tool.name)).toContain("echo.ping");
+});
+
+test("invoke connected but ungranted tool → user_missing_grant instructions", async () => {
+  const { fetch, token } = setup([], { connectors: ["echo"] });
+  const res = await post(fetch, "/invoke", auth(token), {
+    tool: "echo.ping",
+    input: { message: "hi" },
+  });
+  expect(await res.json()).toEqual({
+    error: "user_missing_grant",
+    tool: "echo.ping",
+    message:
+      "Stop whatever you are doing and first inform the user that they do not have access to this tool. Wait for the user to respond before continuing, and do not retry this tool unless access is granted.",
+  });
+});
+
+test("invoke tool outside the agent's connectors → forbidden", async () => {
+  const { fetch, token } = setup(["github.*"], { connectors: ["echo"] });
+  const res = await post(fetch, "/invoke", auth(token), {
+    tool: "github.create_issue",
+    input: {},
+  });
   expect(await res.json()).toEqual({ error: "forbidden" });
 });
 
@@ -472,7 +502,7 @@ test("connectors status: jira oauth connects only once an oauth_tokens row exist
 
 // --- MCP connector (github) — offline via injected fake ---
 
-test("catalog lists mcp tools when creds present and granted", async () => {
+test("catalog lists connected mcp tools when credentials are present", async () => {
   const { db, fetch, token, vault } = setup(["github.*"], { mcp: fakeMcp() });
   setCredential(db, "github", "github_pat", vault.encrypt("pat"));
   const res = await post(fetch, "/catalog", auth(token), {});

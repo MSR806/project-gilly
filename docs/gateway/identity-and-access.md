@@ -22,9 +22,9 @@ Slack is the only identity source for now. Other identities (email login, WhatsA
 grants(userId, toolPattern, createdAt)
 ```
 
-`toolPattern` matches tool names (`gmail.*`, `branch.query`). A user's effective catalog = agent's `connectors[]` ∩ their grant patterns, resolved when the run token is minted.
+`toolPattern` matches tool names (`gmail.*`, `branch.query`). An agent's `connectors[]` determine its catalog; a user's matching grant patterns determine which catalog tools they may invoke.
 
-**The flow is deliberately admin-mediated.** New user messages an agent → they exist in the DB with a name, but no grants → tools resolve to an empty catalog and `invoke` returns `forbidden`. They tell the admin "I don't have access"; the admin finds them in the users list (already there, with their Slack name) and adds grants. No self-service, no approval queue — the org is small enough that a human in the loop *is* the feature.
+**The flow is deliberately admin-mediated.** New user messages an agent → they exist in the DB with a name, but no grants → the agent can discover its connected tools, but invocation returns `user_missing_grant` with instructions to stop and inform the user. The admin finds them in the users list (already there, with their Slack name) and adds grants. No self-service, no approval queue — the org is small enough that a human in the loop *is* the feature.
 
 Admins are marked by `isAdmin` on the user row; the first admin is set manually in the DB. Admin today means: manage users, grants, connectors, and credentials in the web UI, and run the OAuth connect flows.
 

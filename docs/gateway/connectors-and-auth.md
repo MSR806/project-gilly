@@ -58,7 +58,7 @@ App-level OAuth client id/secret (registered once with Google/Meta) live in gate
 
 One credential per provider — the vault stays exactly as [`gateway.md`](gateway.md) defines it: `credentials(provider, key, value)`. All calls to a provider run as the identity the admin connected.
 
-Per-user control is **access resolution, not credential ownership**: the `grants` table decides which user may call which tools, enforced on every `catalog` and `invoke` through the run token ([`identity-and-access.md`](identity-and-access.md)). A user without a grant never sees the tool, regardless of what's in the vault.
+Per-user control is **access resolution, not credential ownership**: the agent's connectors determine catalog visibility, while the `grants` table decides which user may invoke each tool through the run token ([`identity-and-access.md`](identity-and-access.md)). A user without a grant can discover the tool but cannot execute it or receive its data.
 
 **Missing credential is a first-class answer, not a failure.** When a tool is invoked and the admin hasn't connected the provider yet, the gateway returns `{ error: "not_connected" }` and the agent says so — configuration lives with the admin, not in-conversation.
 

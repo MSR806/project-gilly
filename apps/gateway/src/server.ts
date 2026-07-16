@@ -50,7 +50,10 @@ function bearer(req: Request): string | undefined {
   return match?.[1];
 }
 
-type Token = { userId: string; runId: string; grants: string[] };
+type Token = { userId: string; runId: string; connectors: string[]; grants: string[] };
+
+const USER_MISSING_GRANT_MESSAGE =
+  "Stop whatever you are doing and first inform the user that they do not have access to this tool. Wait for the user to respond before continuing, and do not retry this tool unless access is granted.";
 
 /**
  * The gateway fetch handler as a factory (no port binding) so tests drive it directly.
@@ -80,7 +83,14 @@ export function createGatewayServer(deps: {
     if (!raw) return { error: json({ error: "unauthorized" }, 401) };
     const row = getGatewayToken(db, raw);
     if (!row || row.expiresAt < Date.now()) return { error: json({ error: "unauthorized" }, 401) };
-    return { token: { userId: row.userId, runId: row.runId, grants: row.grants } };
+    return {
+      token: {
+        userId: row.userId,
+        runId: row.runId,
+        connectors: row.connectors,
+        grants: row.grants,
+      },
+    };
   }
 
   /** Decrypt the given keys for a provider; null if any required key is missing from the vault. */
@@ -132,6 +142,7 @@ export function createGatewayServer(deps: {
     // is skipped — the catalog must never 500 because one provider is unavailable.
     const mcpEntries: CatalogTool[] = [];
     for (const connector of mcpConnectors()) {
+      if (!a.token.connectors.includes(connector.name)) continue;
       const creds = resolveCreds(
         connector.name,
         connector.auth.kind === "api_key" ? connector.auth.creds : [],
@@ -154,7 +165,10 @@ export function createGatewayServer(deps: {
 
     const tools = [...apiEntries, ...mcpEntries].filter(
       (t) =>
-        isAllowed(t.name, a.token.grants) &&
+        isAllowed(
+          t.name,
+          a.token.connectors.map((connector) => `${connector}.*`),
+        ) &&
         (!q || t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q)),
     );
     return json({ tools });
@@ -163,7 +177,7 @@ export function createGatewayServer(deps: {
   async function invoke(req: Request): Promise<Response> {
     const a = auth(req);
     if ("error" in a) return a.error;
-    const { userId, runId, grants } = a.token;
+    const { userId, runId, connectors, grants } = a.token;
     const body = ((await readJson(req)) ?? {}) as { tool?: string; input?: unknown };
     const toolName = body.tool ?? "";
 
@@ -196,8 +210,15 @@ export function createGatewayServer(deps: {
     return json(result);
 
     async function run(): Promise<unknown> {
-      // Unknown or ungranted tools are indistinguishable to the caller: forbidden.
-      if (!isAllowed(toolName, grants)) return { error: "forbidden" };
+      const connectorPatterns = connectors.map((connector) => `${connector}.*`);
+      if (!isAllowed(toolName, connectorPatterns)) return { error: "forbidden" };
+      if (!isAllowed(toolName, grants)) {
+        return {
+          error: "user_missing_grant",
+          tool: toolName,
+          message: USER_MISSING_GRANT_MESSAGE,
+        };
+      }
 
       const entry = getTool(toolName);
       if (entry) {

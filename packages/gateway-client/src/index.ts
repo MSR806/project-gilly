@@ -35,7 +35,10 @@ async function post(path: string, body: unknown, fetchFn: FetchFn): Promise<unkn
   });
   const data = (await res.json()) as { error?: string } | unknown;
   const error = (data as { error?: string })?.error;
-  if (!res.ok || error) throw new Error(error ?? `gateway ${res.status}`);
+  if (!res.ok || error) {
+    const detail = data && typeof data === "object" ? JSON.stringify(data) : undefined;
+    throw new Error(detail ?? error ?? `gateway ${res.status}`);
+  }
   return data;
 }
 

@@ -212,11 +212,13 @@ test("createGatewayToken → getGatewayToken → deleteGatewayTokensForRun", () 
     runId: "run1",
     userId: "u1",
     agentId: "a1",
+    connectors: ["gmail", "branch"],
     grants: ["gmail.*", "branch.query"],
     ttlMs: 60_000,
   });
   const row = getGatewayToken(db, token);
   expect(row?.runId).toBe("run1");
+  expect(row?.connectors).toEqual(["gmail", "branch"]);
   expect(row?.grants).toEqual(["gmail.*", "branch.query"]);
   deleteGatewayTokensForRun(db, "run1");
   expect(getGatewayToken(db, token)).toBeUndefined();

@@ -29,9 +29,14 @@ test("catalog posts to /catalog with Bearer header and returns tools", async () 
   expect(calls[0]?.init.body).toBe(JSON.stringify({ query: "branch" }));
 });
 
-test("invoke throws when the body carries { error }", async () => {
-  const { fn } = fakeFetch({ error: "forbidden" });
-  expect(invoke("branch.query", {}, fn)).rejects.toThrow("forbidden");
+test("invoke preserves a structured gateway error in the thrown message", async () => {
+  const error = {
+    error: "user_missing_grant",
+    tool: "branch.query",
+    message: "Stop and inform the user.",
+  };
+  const { fn } = fakeFetch(error);
+  expect(invoke("branch.query", {}, fn)).rejects.toThrow(JSON.stringify(error));
 });
 
 test("missing env var throws", async () => {

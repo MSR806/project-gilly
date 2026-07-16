@@ -249,7 +249,7 @@ const echoWithConnectors: AgentConfig = { ...agent, connectors: ["echo"] };
 
 /** Fake runtime that captures the InvocationRequest (and resolves any gateway token while live). */
 function capturingRuntime(db: ReturnType<typeof createDb>) {
-  const seen: { req?: InvocationRequest; grants?: string[] } = {};
+  const seen: { req?: InvocationRequest; connectors?: string[]; grants?: string[] } = {};
   const runtime: RuntimeProvider = {
     name: "fake",
     async invoke() {
@@ -258,7 +258,11 @@ function capturingRuntime(db: ReturnType<typeof createDb>) {
     async *invokeStream(req) {
       seen.req = req;
       // Resolve while the token is still live (cleanup fires on `done`).
-      if (req.gateway) seen.grants = getGatewayToken(db, req.gateway.token)?.grants;
+      if (req.gateway) {
+        const token = getGatewayToken(db, req.gateway.token);
+        seen.connectors = token?.connectors;
+        seen.grants = token?.grants;
+      }
       yield { type: "done", finalText: "ok", harnessSessionId: null };
     },
     async healthy() {
@@ -283,10 +287,11 @@ test("mints a gateway token for a user whose grant matches an agent connector", 
   await collect(engine.stream({ ...baseInput, userMessage: "hi", userId: user.id }));
   expect(seen.req?.gateway?.url).toBe("http://gw");
   expect(seen.req?.gateway?.token).toBeTruthy();
+  expect(seen.connectors).toEqual(["echo"]);
   expect(seen.grants).toEqual(["echo.*"]);
 });
 
-test("no gateway when the user's grants don't match the agent's connectors", async () => {
+test("mints a catalog-only gateway token when the user's grants don't match", async () => {
   const db = createDb(":memory:");
   const user = upsertUserBySlackId(db, { slackUserId: "U2", name: "U2" });
   addGrant(db, user.id, "gmail.*"); // agent only connects "echo"
@@ -299,7 +304,9 @@ test("no gateway when the user's grants don't match the agent's connectors", asy
   });
 
   await collect(engine.stream({ ...baseInput, userMessage: "hi", userId: user.id }));
-  expect(seen.req?.gateway).toBeUndefined();
+  expect(seen.req?.gateway).toBeDefined();
+  expect(seen.connectors).toEqual(["echo"]);
+  expect(seen.grants).toEqual([]);
 });
 
 test("an admin bypasses grants: gets full access to the agent's connectors", async () => {
