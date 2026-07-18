@@ -38,17 +38,37 @@ export interface McpGateway {
 
 type McpEnvelope = { structuredContent?: unknown; content: unknown[] } | { toolResult: unknown };
 
+const MAX_NESTED_MCP_ENVELOPES = 4;
+
 /** True for a value shaped like another MCP envelope — some upstreams (e.g. Amplitude) double-wrap. */
 function isMcpEnvelope(value: unknown): value is McpEnvelope {
   if (!value || typeof value !== "object") return false;
   if ("toolResult" in value) return true;
-  return Array.isArray((value as Record<string, unknown>).content);
+  const content = (value as Record<string, unknown>).content;
+  return (
+    Array.isArray(content) &&
+    content.every(
+      (block) =>
+        block !== null &&
+        typeof block === "object" &&
+        typeof (block as Record<string, unknown>).type === "string",
+    )
+  );
 }
 
-/** Turn the common MCP text envelope into the value scripts and direct tools expect. */
-export function normalizeMcpResult(result: McpEnvelope): unknown {
-  if ("toolResult" in result) return result.toolResult;
-  if (result.structuredContent !== undefined) return result.structuredContent;
+function normalizeMcpEnvelope(result: McpEnvelope, remaining: number): unknown {
+  if ("toolResult" in result) {
+    const value = result.toolResult;
+    return remaining > 0 && isMcpEnvelope(value)
+      ? normalizeMcpEnvelope(value, remaining - 1)
+      : value;
+  }
+  if (result.structuredContent !== undefined) {
+    const value = result.structuredContent;
+    return remaining > 0 && isMcpEnvelope(value)
+      ? normalizeMcpEnvelope(value, remaining - 1)
+      : value;
+  }
   if (result.content.length !== 1) return result.content;
 
   const block = result.content[0];
@@ -57,11 +77,17 @@ export function normalizeMcpResult(result: McpEnvelope): unknown {
 
   try {
     const parsed: unknown = JSON.parse(block.text);
-    // Keep unwrapping while the parsed value is itself an envelope, not just the outer one.
-    return isMcpEnvelope(parsed) ? normalizeMcpResult(parsed) : parsed;
+    return remaining > 0 && isMcpEnvelope(parsed)
+      ? normalizeMcpEnvelope(parsed, remaining - 1)
+      : parsed;
   } catch {
     return block.text;
   }
+}
+
+/** Turn nested single-text MCP envelopes into the value scripts and direct tools expect. */
+export function normalizeMcpResult(result: McpEnvelope): unknown {
+  return normalizeMcpEnvelope(result, MAX_NESTED_MCP_ENVELOPES);
 }
 
 // ponytail: tool discovery is cached in-process only — one connected Client per connector, no DB

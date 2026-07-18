@@ -30,3 +30,44 @@ test("normalizeMcpResult keeps unwrapping when an upstream double-wraps its own 
     data: { csvResponse: { data: [["Total", "1"]] } },
   });
 });
+
+test("normalizeMcpResult unwraps a legacy toolResult containing an MCP envelope", () => {
+  expect(
+    normalizeMcpResult({
+      toolResult: {
+        content: [{ type: "text", text: '{"success":true,"data":{"users":970}}' }],
+      },
+    }),
+  ).toEqual({ success: true, data: { users: 970 } });
+});
+
+test("normalizeMcpResult unwraps an MCP envelope nested in structured content", () => {
+  expect(
+    normalizeMcpResult({
+      structuredContent: {
+        content: [{ type: "text", text: '{"success":true,"data":{"users":970}}' }],
+      },
+      content: [{ type: "text", text: "ignored" }],
+    }),
+  ).toEqual({ success: true, data: { users: 970 } });
+});
+
+test("normalizeMcpResult bounds nested envelopes and keeps application data authoritative", () => {
+  const innermostEnvelope = JSON.stringify({
+    content: [{ type: "text", text: '{"users":970}' }],
+  });
+  let nested = innermostEnvelope;
+  for (let i = 1; i < 6; i++) {
+    nested = JSON.stringify({ content: [{ type: "text", text: nested }] });
+  }
+
+  expect(normalizeMcpResult({ content: [{ type: "text", text: nested }] })).toEqual({
+    content: [{ type: "text", text: innermostEnvelope }],
+  });
+  expect(
+    normalizeMcpResult({
+      structuredContent: { content: ["application data"] },
+      content: [{ type: "text", text: "ignored" }],
+    }),
+  ).toEqual({ content: ["application data"] });
+});
