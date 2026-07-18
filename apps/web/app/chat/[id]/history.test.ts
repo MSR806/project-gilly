@@ -16,6 +16,8 @@ test("messagesFromRuns rebuilds turns with narration, tools, final output, and f
         steps: [
           { type: "message", text: "I’ll inspect it." },
           { type: "tool", name: "Read", summary: "package.json" },
+          { type: "message", text: "Now I’ll run the checks." },
+          { type: "tool", name: "Bash", summary: "bun test" },
         ],
       },
       {
@@ -35,6 +37,8 @@ test("messagesFromRuns rebuilds turns with narration, tools, final output, and f
       parts: [
         { kind: "text", text: "I’ll inspect it." },
         { kind: "activity", items: [{ name: "Read", summary: "package.json" }] },
+        { kind: "text", text: "Now I’ll run the checks." },
+        { kind: "activity", items: [{ name: "Bash", summary: "bun test" }] },
         { kind: "text", text: "It is healthy." },
       ],
     },
@@ -43,14 +47,25 @@ test("messagesFromRuns rebuilds turns with narration, tools, final output, and f
   ]);
 });
 
-test("appendActivityPart keeps one activity block at the latest tool position", () => {
+test("appendActivityPart preserves activity around intervening narration", () => {
   let parts: Part[] = [];
   parts = appendActivityPart(parts, { name: "Read", summary: "first.ts" });
   parts.push({ kind: "text", text: "Now checking another file." });
   parts = appendActivityPart(parts, { name: "Read", summary: "second.ts" });
 
   expect(parts).toEqual([
+    { kind: "activity", items: [{ name: "Read", summary: "first.ts" }] },
     { kind: "text", text: "Now checking another file." },
+    { kind: "activity", items: [{ name: "Read", summary: "second.ts" }] },
+  ]);
+});
+
+test("appendActivityPart keeps adjacent tool calls in one activity block", () => {
+  let parts: Part[] = [];
+  parts = appendActivityPart(parts, { name: "Read", summary: "first.ts" });
+  parts = appendActivityPart(parts, { name: "Read", summary: "second.ts" });
+
+  expect(parts).toEqual([
     {
       kind: "activity",
       items: [

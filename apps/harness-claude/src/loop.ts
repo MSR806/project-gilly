@@ -276,6 +276,7 @@ export async function* streamAgentLoop(
   let harnessSessionId: string | null = null;
   let resultText: string | null = null;
   let accumulated = "";
+  let pendingNarration: string[] = [];
   try {
     const options = buildOptions(req, true);
     if (options.cwd) {
@@ -294,24 +295,28 @@ export async function* streamAgentLoop(
           yield { type: "token", text: event.delta.text };
         }
       } else if (message.type === "assistant") {
-        // A turn that calls tools also narrates first; surface that narration as a completed
-        // intermediate `message`, then the tools. A text-only turn is the (final) answer and is
-        // delivered via `done.finalText` — not surfaced here.
         let text = "";
         const tools: { name: string; input: unknown }[] = [];
         for (const block of message.message.content) {
           if (block.type === "text") text += block.text;
           else if (block.type === "tool_use") tools.push({ name: block.name, input: block.input });
         }
+
         if (tools.length) {
           const narration = text.trim();
+          for (const pending of pendingNarration) yield { type: "message", text: pending };
+          pendingNarration = [];
           if (narration) yield { type: "message", text: narration };
           for (const t of tools) {
             yield { type: "tool", name: t.name, summary: summarizeToolUse(t.input) };
           }
+        } else {
+          const narration = text.trim();
+          if (narration) pendingNarration.push(narration);
         }
       } else if (message.type === "result" && message.subtype === "success") {
         resultText = message.result;
+        pendingNarration = [];
       }
     }
     yield { type: "done", finalText: resultText ?? accumulated, harnessSessionId };

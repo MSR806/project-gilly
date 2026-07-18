@@ -4,7 +4,9 @@ import {
   newProgressState,
   reduceProgress,
   renderProgress,
+  toProgressMessage,
   toSlackMessages,
+  withRunSummary,
 } from "./slack-format.ts";
 
 test("toSlackMessages wraps markdown in one message", () => {
@@ -141,4 +143,105 @@ test("renderProgress uses sensible zero and singular copy", () => {
   expect(renderProgress(newProgressState())).toBe("Working · starting…");
   const one = reduceProgress(newProgressState(), { type: "tool", name: "Bash", summary: "" });
   expect(renderProgress(one)).toBe("Working · 1 step\n• *Bash*");
+});
+
+test("toProgressMessage renders a documented container block", () => {
+  expect(toProgressMessage(newProgressState())).toEqual({
+    blocks: [
+      {
+        type: "container",
+        title: { type: "plain_text", text: "Working…" },
+        subtitle: { type: "plain_text", text: "Starting…" },
+        is_collapsible: false,
+        default_collapsed: false,
+        child_blocks: [
+          { type: "divider" },
+          {
+            type: "context",
+            elements: [{ type: "plain_text", text: "Preparing the run…" }],
+          },
+        ],
+      },
+    ],
+    text: "Working · starting…",
+  });
+});
+
+test("toProgressMessage puts recent activity inside the container", () => {
+  const state = reduceProgress(newProgressState(), {
+    type: "tool",
+    name: "Read",
+    summary: "src/index.ts",
+  });
+
+  expect(toProgressMessage(state)).toEqual({
+    blocks: [
+      {
+        type: "container",
+        title: { type: "plain_text", text: "Working…" },
+        subtitle: { type: "plain_text", text: "1 step completed" },
+        is_collapsible: false,
+        default_collapsed: false,
+        child_blocks: [
+          { type: "divider" },
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "• *Read* — index.ts" },
+          },
+        ],
+      },
+    ],
+    text: "Working · 1 step\n• *Read* — index.ts",
+  });
+});
+
+test("withRunSummary collapses completed activity beside the final Markdown", () => {
+  const state = reduceProgress(newProgressState(), {
+    type: "tool",
+    name: "Bash",
+    summary: "bun test",
+  });
+  const [message] = toSlackMessages("**Done**");
+  if (!message) throw new Error("expected one Slack message");
+
+  expect(withRunSummary(message, state, false)).toEqual({
+    blocks: [
+      {
+        type: "container",
+        title: { type: "plain_text", text: "Completed" },
+        subtitle: { type: "plain_text", text: "1 step completed" },
+        is_collapsible: true,
+        default_collapsed: true,
+        child_blocks: [
+          { type: "divider" },
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "• *Bash* — test" },
+          },
+        ],
+      },
+      { type: "markdown", text: "**Done**" },
+    ],
+    text: "**Done**",
+  });
+});
+
+test("withRunSummary marks failed activity", () => {
+  const [message] = toSlackMessages("⚠️ runtime failed");
+  if (!message) throw new Error("expected one Slack message");
+
+  expect(withRunSummary(message, newProgressState(), true).blocks[0]).toEqual({
+    type: "container",
+    title: { type: "plain_text", text: "Failed" },
+    subtitle: { type: "plain_text", text: "Stopped before starting" },
+    is_collapsible: true,
+    default_collapsed: true,
+    child_blocks: [
+      { type: "divider" },
+      {
+        type: "context",
+        elements: [{ type: "plain_text", text: "Preparing the run…" }],
+      },
+    ],
+  });
 });

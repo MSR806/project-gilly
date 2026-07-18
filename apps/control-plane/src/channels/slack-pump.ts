@@ -2,14 +2,15 @@ import type { StreamEvent } from "@gilly/runtime";
 import {
   newProgressState,
   reduceProgress,
-  renderProgress,
   type SlackMessage,
+  toProgressMessage,
   toSlackMessages,
+  withRunSummary,
 } from "./slack-format.ts";
 
 export type SlackRunDelivery = {
-  startProgress(text: string): Promise<string>;
-  queueProgress(messageTs: string, text: string): void;
+  startProgress(message: SlackMessage): Promise<string>;
+  queueProgress(messageTs: string, message: SlackMessage): void;
   finishProgress(messageTs: string, message: SlackMessage): Promise<void>;
   postFinal(message: SlackMessage): Promise<void>;
 };
@@ -40,7 +41,7 @@ export async function pumpSlackRun(params: {
   let errored = false;
 
   try {
-    progressTs = await params.delivery.startProgress(renderProgress(progress));
+    progressTs = await params.delivery.startProgress(toProgressMessage(progress));
   } catch (error) {
     progressDisabled = true;
     report("failed to start progress message", error);
@@ -64,7 +65,7 @@ export async function pumpSlackRun(params: {
     progress = reduceProgress(progress, event);
     if (!progressDisabled && progressTs) {
       try {
-        params.delivery.queueProgress(progressTs, renderProgress(progress));
+        params.delivery.queueProgress(progressTs, toProgressMessage(progress));
       } catch (error) {
         progressDisabled = true;
         report("failed to queue progress update", error);
@@ -79,7 +80,7 @@ export async function pumpSlackRun(params: {
 
   if (progressTs && first) {
     try {
-      await params.delivery.finishProgress(progressTs, first);
+      await params.delivery.finishProgress(progressTs, withRunSummary(first, progress, errored));
       firstDelivered = true;
     } catch (error) {
       report("failed to replace progress message", error);

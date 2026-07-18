@@ -1,5 +1,11 @@
 import type { StreamEvent } from "@gilly/runtime";
-import type { KnownBlock } from "@slack/types";
+import type {
+  ContextBlock,
+  DividerBlock,
+  KnownBlock,
+  PlainTextElement,
+  SectionBlock,
+} from "@slack/types";
 import {
   appendSlackActivity,
   renderSlackActivity,
@@ -16,8 +22,24 @@ type Fence = {
   opener: string;
 };
 
-/** One Slack message payload containing a single, size-safe markdown block. */
-export type SlackMessage = { blocks: KnownBlock[]; text: string };
+type ContainerChildBlock = ContextBlock | DividerBlock | SectionBlock;
+
+/** Slack released this message-only block before adding it to the Node SDK's KnownBlock union. */
+export type ContainerBlock = {
+  type: "container";
+  block_id?: string;
+  title: PlainTextElement;
+  subtitle?: PlainTextElement;
+  width?: "narrow" | "standard" | "wide" | "full";
+  is_collapsible?: boolean;
+  default_collapsed?: boolean;
+  child_blocks: ContainerChildBlock[];
+};
+
+export type SlackBlock = KnownBlock | ContainerBlock;
+
+/** One size-safe Slack message payload with an accessible notification fallback. */
+export type SlackMessage = { blocks: SlackBlock[]; text: string };
 
 /** Pure progress state: the full count plus only the operations still visible. */
 export type ProgressState = {
@@ -46,6 +68,67 @@ export function renderProgress(state: ProgressState): string {
   const summary = `Working · ${state.totalSteps} ${state.totalSteps === 1 ? "step" : "steps"}`;
   const rows = state.recentSteps.map(renderSlackActivity);
   return [summary, ...rows].join("\n");
+}
+
+type ProgressStatus = "working" | "completed" | "failed";
+
+function progressSubtitle(state: ProgressState, status: ProgressStatus): string {
+  if (state.totalSteps === 0) {
+    if (status === "working") return "Starting…";
+    return status === "completed" ? "Finished without tool activity" : "Stopped before starting";
+  }
+
+  const steps = `${state.totalSteps} ${state.totalSteps === 1 ? "step" : "steps"}`;
+  if (status === "failed") return `Stopped after ${steps}`;
+  return `${steps} completed`;
+}
+
+function progressContainer(state: ProgressState, status: ProgressStatus): ContainerBlock {
+  const rows = state.recentSteps.map(renderSlackActivity);
+  const childBlocks: ContainerChildBlock[] = [{ type: "divider" }];
+  if (rows.length > 0) {
+    childBlocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: rows.join("\n") },
+    });
+  } else {
+    childBlocks.push({
+      type: "context",
+      elements: [{ type: "plain_text", text: "Preparing the run…" }],
+    });
+  }
+
+  return {
+    type: "container",
+    title: {
+      type: "plain_text",
+      text: status === "working" ? "Working…" : status === "completed" ? "Completed" : "Failed",
+    },
+    subtitle: { type: "plain_text", text: progressSubtitle(state, status) },
+    is_collapsible: status !== "working",
+    default_collapsed: status !== "working",
+    child_blocks: childBlocks,
+  };
+}
+
+/** Render the editable working card shown while a Slack run is active. */
+export function toProgressMessage(state: ProgressState): SlackMessage {
+  return {
+    blocks: [progressContainer(state, "working")],
+    text: renderProgress(state),
+  };
+}
+
+/** Prepend a collapsed activity summary while leaving the final Markdown block as a sibling. */
+export function withRunSummary(
+  message: SlackMessage,
+  state: ProgressState,
+  errored: boolean,
+): SlackMessage {
+  return {
+    blocks: [progressContainer(state, errored ? "failed" : "completed"), ...message.blocks],
+    text: message.text,
+  };
 }
 
 /** Plain-text fallback for Slack notifications and accessibility. */

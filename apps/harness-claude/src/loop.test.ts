@@ -286,3 +286,39 @@ test("streamAgentLoop surfaces a tool-turn's narration as a `message`, then its 
     { type: "done", finalText: "the answer", harnessSessionId: "s4" },
   ]);
 });
+
+test("streamAgentLoop associates a separate narration payload with the following tools", async () => {
+  const queryFn = (() =>
+    stream(
+      init("s5"),
+      assistant("Let me inspect it."),
+      toolUse("Read", { file_path: "one.ts" }),
+      assistant("Now I’ll run the tests."),
+      toolUse("Bash", { command: "bun test" }),
+      assistant("Everything passed."),
+      result("Everything passed."),
+    )) as unknown as typeof query;
+  const events = [];
+  for await (const ev of streamAgentLoop(req, queryFn)) events.push(ev);
+  expect(events).toEqual([
+    { type: "message", text: "Let me inspect it." },
+    { type: "tool", name: "Read", summary: "one.ts" },
+    { type: "message", text: "Now I’ll run the tests." },
+    { type: "tool", name: "Bash", summary: "bun test" },
+    { type: "done", finalText: "Everything passed.", harnessSessionId: "s5" },
+  ]);
+});
+
+test("streamAgentLoop does not surface a final text-only payload as progress", async () => {
+  const queryFn = (() =>
+    stream(
+      init("s6"),
+      assistant("The final answer."),
+      result("The final answer."),
+    )) as unknown as typeof query;
+  const events = [];
+  for await (const ev of streamAgentLoop(req, queryFn)) events.push(ev);
+  expect(events).toEqual([
+    { type: "done", finalText: "The final answer.", harnessSessionId: "s6" },
+  ]);
+});

@@ -62,6 +62,18 @@ test("labels repeated operations as invocations rather than unique files", () =>
   ).toEqual([{ label: "Edit", detail: "2 edits · same.ts", count: 2 }]);
 });
 
+test("strips the MCP prefix and shows gateway tool arguments", () => {
+  expect(
+    groupActivity([
+      { name: "mcp__gateway__gateway_catalog", summary: "amplitude" },
+      { name: "mcp__gateway__gateway_invoke", summary: "amplitude.query_events — funnels" },
+    ]),
+  ).toEqual([
+    { label: "gateway_catalog", detail: "amplitude", count: 1 },
+    { label: "gateway_invoke", detail: "amplitude.query_events — funnels", count: 1 },
+  ]);
+});
+
 test("sanitizes command aliases and hides unknown tool summaries", () => {
   expect(groupActivity([{ name: "exec_command", summary: "TOKEN=secret git status" }])).toEqual([
     { label: "exec_command", detail: "git", count: 1 },

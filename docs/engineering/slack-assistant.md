@@ -11,16 +11,16 @@ Bolt's `Assistant` class lines up with `Channel` (native event → engine input 
 | Assistant handler | Gilly use |
 | --- | --- |
 | `threadStarted` | greeting + `setSuggestedPrompts(...)` |
-| `userMessage` | `assistantMessageToInput()` → ack reaction → `sayStream()` drives a **`task_card`** (in_progress→complete) while `engine.stream()` streams the reply → done reaction |
+| `userMessage` | `assistantMessageToInput()` → ack reaction → an editable progress container while `engine.stream()` runs → final Markdown reply → done reaction |
 
-The conversation key is `channel:thread_ts`, which maps to a Gilly Session (so follow-ups resume the same harness session). If `sayStream`/`task_card` is unavailable, it degrades to `setStatus("is thinking…")` + a single `say`.
+The conversation key is `channel:thread_ts`, which maps to a Gilly Session (so follow-ups resume the same harness session). Progress uses ordinary message posts and rate-limited `chat.update` calls, so the same delivery path works in the assistant surface and channel threads.
 
 ## UX features
 
 - **Reactions** on the user's message (`apps/control-plane/src/channels/slack.ts`): `eyes` on receipt, `white_check_mark` on done, `warning` on error, `hourglass_flowing_sand` when a message is queued behind an active run (`engine.handle` returns `{ queued }`). Reaction failures are swallowed — never block the reply.
-- **Plan block** (assistant panel): streamed via `sayStream` with `task_display_mode: "plan"` — a `plan_update` header (`Working…` → `Done`/`Failed`) with one `task_update` step per tool call / intermediate assistant message, and the final answer as the message body.
+- **Progress container**: the editable message starts as a Block Kit `container` titled `Working…`, with the latest grouped activities inside. The final update collapses it as `Completed` or `Failed` and keeps the answer in a sibling `markdown` block. If the container cannot be posted or updated, delivery falls back to the existing plain Markdown messages so presentation never suppresses the answer.
 - **Thread context** (channel mentions): when `@gilly` is mentioned inside a thread, `conversations.replies` is fetched, formatted by `formatTranscript`, and prepended to the request via `withThreadContext` — no protocol change.
-- **Rich formatting**: replies are sent as Block Kit `markdown` blocks (`toBlocks` in `slack-format.ts`) — standard Markdown, no mrkdwn conversion needed; chunked at the 12k-char block limit.
+- **Rich formatting**: replies are sent as Block Kit `markdown` blocks (`toSlackMessages` in `slack-format.ts`) — standard Markdown, no mrkdwn conversion needed; chunked at the 12k-char block limit. The progress container uses documented `section`, `context`, and `divider` children; the final Markdown stays outside because `markdown` is not a supported container child.
 
 ---
 

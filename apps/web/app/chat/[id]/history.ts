@@ -30,13 +30,13 @@ export type Message = {
   parts: Part[];
 };
 
-/** Keep one web activity block, moving it to the latest tool position as a turn progresses. */
+/** Append adjacent tools together without moving activity across intervening narration. */
 export function appendActivityPart(parts: Part[], item: { name: string; summary: string }): Part[] {
-  const existing = parts.flatMap((part) => (part.kind === "activity" ? part.items : []));
-  return [
-    ...parts.filter((part) => part.kind !== "activity"),
-    { kind: "activity", items: [...existing, item] },
-  ];
+  const last = parts.at(-1);
+  if (last?.kind === "activity") {
+    return [...parts.slice(0, -1), { kind: "activity", items: [...last.items, item] }];
+  }
+  return [...parts, { kind: "activity", items: [item] }];
 }
 
 /** Rebuild the durable transcript: progress narration/tools first, then the final answer. */

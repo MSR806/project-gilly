@@ -13,7 +13,10 @@ const COMMAND_TOOLS = new Set([
 const FILE_TOOLS = new Set(["edit", "read", "write"]);
 const SEARCH_COMMANDS = new Set(["grep", "rg"]);
 const SCRIPT_RUNNERS = new Set(["bun", "deno", "node", "python", "python3", "ruby", "tsx"]);
-const SAFE_DETAIL_TOOLS = new Set(["skill"]);
+const SAFE_DETAIL_TOOLS = new Set(["skill", "gateway_catalog", "gateway_invoke"]);
+
+/** `mcp__gateway__gateway_invoke` → `gateway_invoke`; non-MCP names pass through. */
+const stripMcpPrefix = (name: string): string => name.replace(/^mcp__.+?__/, "");
 
 type OperationEvent = Extract<StreamEvent, { type: "message" | "tool" }>;
 
@@ -169,7 +172,7 @@ export function toSlackActivity(event: OperationEvent): SlackActivity {
     };
   }
 
-  const tool = normalize(event.name) || "Tool";
+  const tool = stripMcpPrefix(normalize(event.name)) || "Tool";
   const normalizedTool = tool.toLowerCase();
   if (COMMAND_TOOLS.has(normalizedTool)) return commandActivity(event.summary);
 

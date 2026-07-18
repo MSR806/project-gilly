@@ -1,9 +1,9 @@
 import { type Db, upsertUserBySlackId } from "@gilly/db";
 import type { StreamEvent } from "@gilly/runtime";
 import { App, Assistant, LogLevel } from "@slack/bolt";
-import type { KnownBlock } from "@slack/types";
 import type { WebClient } from "@slack/web-api";
 import type { createEngine } from "../engine.ts";
+import type { SlackBlock } from "./slack-format.ts";
 import { pumpSlackRun, type SlackRunDelivery } from "./slack-pump.ts";
 import {
   assistantMessageToInput,
@@ -22,8 +22,8 @@ const REACTION = {
   error: "warning",
 };
 
-type SlackUpdate = { channel: string; ts: string; text: string; blocks?: KnownBlock[] };
-type SlackPost = (message: { text: string; blocks?: KnownBlock[] }) => Promise<{ ts?: string }>;
+type SlackUpdate = { channel: string; ts: string; text: string; blocks?: SlackBlock[] };
+type SlackPost = (message: { text: string; blocks?: SlackBlock[] }) => Promise<{ ts?: string }>;
 
 /** Add/remove a reaction; never let a reaction failure break the reply. */
 async function react(client: WebClient, channel: string, ts: string, name: string, add = true) {
@@ -129,13 +129,13 @@ export function buildSlackApp(deps: {
   });
 
   const runDelivery = (channel: string, post: SlackPost): SlackRunDelivery => ({
-    async startProgress(text) {
-      const response = await post({ text });
+    async startProgress(message) {
+      const response = await post(message);
       if (!response.ts) throw new Error("Slack progress message returned no timestamp");
       return response.ts;
     },
-    queueProgress(ts, text) {
-      updates.schedule({ channel, ts, text });
+    queueProgress(ts, message) {
+      updates.schedule({ channel, ts, ...message });
     },
     async finishProgress(ts, message) {
       await updates.finalize({ channel, ts, ...message });

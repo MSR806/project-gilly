@@ -123,6 +123,20 @@ test("sanitizes command-tool aliases and hides unknown tool summaries", () => {
   ).toBeUndefined();
 });
 
+test("strips the MCP prefix and shows gateway tool arguments", () => {
+  const invoke = toSlackActivity({
+    type: "tool",
+    name: "mcp__gateway__gateway_invoke",
+    summary: "amplitude.query_events — funnels",
+  });
+  expect(invoke.title).toBe("gateway_invoke");
+  expect(invoke.details).toBe("amplitude.query_events — funnels");
+  expect(invoke.groupKey).toStartWith("tool:gateway_invoke:");
+  expect(
+    toSlackActivity({ type: "tool", name: "mcp__gateway__gateway_catalog", summary: "" }).title,
+  ).toBe("gateway_catalog");
+});
+
 test("retains only the latest three display groups", () => {
   const events = [
     { type: "tool" as const, name: "Read", summary: "one.ts" },

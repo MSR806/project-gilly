@@ -481,7 +481,11 @@ function ChatPageContent() {
                         );
                       }
                       return (
-                        <ActivityBlock key={j} items={part.items} running={streaming && isLast} />
+                        <ActivityBlock
+                          key={j}
+                          items={part.items}
+                          running={streaming && isLast && j === message.parts.length - 1}
+                        />
                       );
                     })}
                     {streaming && isLast && !hasActivity ? (

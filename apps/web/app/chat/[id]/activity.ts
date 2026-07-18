@@ -20,7 +20,12 @@ const COMMAND_TOOLS = new Set([
   "terminal",
 ]);
 const COMMAND_RUNNERS = new Set(["bun", "deno", "node", "python", "python3", "ruby"]);
-const SAFE_DETAIL_TOOLS = new Set(["skill"]);
+const SAFE_DETAIL_TOOLS = new Set(["skill", "gateway_catalog", "gateway_invoke"]);
+
+/** `mcp__gateway__gateway_invoke` → `gateway_invoke`; non-MCP names pass through. */
+export function stripMcpPrefix(name: string): string {
+  return name.replace(/^mcp__.+?__/, "");
+}
 
 function basename(value: string): string {
   return value.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? value;
@@ -93,7 +98,7 @@ export function compactCommand(command: string): string {
 }
 
 function compactItem(item: ActivityItem): ActivityGroup & { groupKey: string; target: string } {
-  const label = item.name.trim() || "Tool";
+  const label = stripMcpPrefix(item.name.trim()) || "Tool";
   const normalizedName = label.toLowerCase();
   if (COMMAND_TOOLS.has(normalizedName)) {
     const detail = compactCommand(item.summary);

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { StreamEvent } from "@gilly/runtime";
+import { type SlackMessage, toSlackMessages } from "./slack-format.ts";
 import { pumpSlackRun, type SlackRunDelivery } from "./slack-pump.ts";
 
 async function* stream(events: StreamEvent[], onFinally?: () => void) {
@@ -11,7 +12,7 @@ async function* stream(events: StreamEvent[], onFinally?: () => void) {
 }
 
 function fakeDelivery(overrides: Partial<SlackRunDelivery> = {}) {
-  const progress: string[] = [];
+  const progress: SlackMessage[] = [];
   const finished: unknown[] = [];
   const posted: unknown[] = [];
   const delivery: SlackRunDelivery = {
@@ -53,8 +54,47 @@ test("pumpSlackRun consumes one run and replaces progress with the final answer"
 
   expect(result).toEqual({ final: "hello", errored: false });
   expect(closed).toBe(1);
-  expect(fake.progress.at(-1)).toContain("Read");
-  expect(fake.finished).toEqual([{ blocks: [{ type: "markdown", text: "hello" }], text: "hello" }]);
+  expect(fake.progress.at(-1)).toEqual({
+    blocks: [
+      {
+        type: "container",
+        title: { type: "plain_text", text: "Working…" },
+        subtitle: { type: "plain_text", text: "1 step completed" },
+        is_collapsible: false,
+        default_collapsed: false,
+        child_blocks: [
+          { type: "divider" },
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "• *Read* — README.md" },
+          },
+        ],
+      },
+    ],
+    text: "Working · 1 step\n• *Read* — README.md",
+  });
+  expect(fake.finished).toEqual([
+    {
+      blocks: [
+        {
+          type: "container",
+          title: { type: "plain_text", text: "Completed" },
+          subtitle: { type: "plain_text", text: "1 step completed" },
+          is_collapsible: true,
+          default_collapsed: true,
+          child_blocks: [
+            { type: "divider" },
+            {
+              type: "section",
+              text: { type: "mrkdwn", text: "• *Read* — README.md" },
+            },
+          ],
+        },
+        { type: "markdown", text: "hello" },
+      ],
+      text: "hello",
+    },
+  ]);
   expect(fake.posted).toEqual([]);
 });
 
@@ -101,7 +141,7 @@ test("pumpSlackRun posts every final segment when replacing progress fails", asy
   });
 
   expect(fake.finished).toEqual([]);
-  expect(fake.posted.length).toBe(2);
+  expect(fake.posted).toEqual(toSlackMessages(finalText));
 });
 
 test("pumpSlackRun posts the final answer when the progress message cannot start", async () => {
@@ -135,7 +175,23 @@ test("pumpSlackRun uses accumulated tokens when done has an empty final answer",
   expect(result.final).toBe("fallback answer");
   expect(fake.finished).toEqual([
     {
-      blocks: [{ type: "markdown", text: "fallback answer" }],
+      blocks: [
+        {
+          type: "container",
+          title: { type: "plain_text", text: "Completed" },
+          subtitle: { type: "plain_text", text: "Finished without tool activity" },
+          is_collapsible: true,
+          default_collapsed: true,
+          child_blocks: [
+            { type: "divider" },
+            {
+              type: "context",
+              elements: [{ type: "plain_text", text: "Preparing the run…" }],
+            },
+          ],
+        },
+        { type: "markdown", text: "fallback answer" },
+      ],
       text: "fallback answer",
     },
   ]);

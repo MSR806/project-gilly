@@ -36,10 +36,17 @@ export interface McpGateway {
   ): Promise<unknown>;
 }
 
+type McpEnvelope = { structuredContent?: unknown; content: unknown[] } | { toolResult: unknown };
+
+/** True for a value shaped like another MCP envelope — some upstreams (e.g. Amplitude) double-wrap. */
+function isMcpEnvelope(value: unknown): value is McpEnvelope {
+  if (!value || typeof value !== "object") return false;
+  if ("toolResult" in value) return true;
+  return Array.isArray((value as Record<string, unknown>).content);
+}
+
 /** Turn the common MCP text envelope into the value scripts and direct tools expect. */
-export function normalizeMcpResult(
-  result: { structuredContent?: unknown; content: unknown[] } | { toolResult: unknown },
-): unknown {
+export function normalizeMcpResult(result: McpEnvelope): unknown {
   if ("toolResult" in result) return result.toolResult;
   if (result.structuredContent !== undefined) return result.structuredContent;
   if (result.content.length !== 1) return result.content;
@@ -49,7 +56,9 @@ export function normalizeMcpResult(
     return result.content;
 
   try {
-    return JSON.parse(block.text);
+    const parsed: unknown = JSON.parse(block.text);
+    // Keep unwrapping while the parsed value is itself an envelope, not just the outer one.
+    return isMcpEnvelope(parsed) ? normalizeMcpResult(parsed) : parsed;
   } catch {
     return block.text;
   }

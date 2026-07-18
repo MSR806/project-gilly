@@ -22,3 +22,11 @@ test("normalizeMcpResult unwraps simple results and preserves complex content", 
   ];
   expect(normalizeMcpResult({ content })).toEqual(content);
 });
+
+test("normalizeMcpResult keeps unwrapping when an upstream double-wraps its own envelope", () => {
+  const inner = JSON.stringify({ data: { csvResponse: { data: [["Total", "1"]] } } });
+  const doubleWrapped = JSON.stringify({ content: [{ type: "text", text: inner }] });
+  expect(normalizeMcpResult({ content: [{ type: "text", text: doubleWrapped }] })).toEqual({
+    data: { csvResponse: { data: [["Total", "1"]] } },
+  });
+});
