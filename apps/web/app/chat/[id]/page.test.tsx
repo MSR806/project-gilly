@@ -14,6 +14,17 @@ test("Markdown renders GFM tables and inline formatting", () => {
   expect(html).toContain("<code>echo</code>");
 });
 
+test("Markdown table row borders span Field and Value cells", () => {
+  const html = renderToStaticMarkup(
+    <Markdown>{"| Field | Value |\n|---|---|\n| Type | Task |\n| Status | In Review |"}</Markdown>,
+  );
+
+  expect(html).toContain(
+    '<tr class="border-b last:border-b-0"><td class="px-3 py-2">Type</td><td class="px-3 py-2">Task</td></tr>',
+  );
+  expect(html).not.toContain('last:border-b-0">Task</td>');
+});
+
 test("ActivityBlock is collapsed after completion and does not render raw command arguments", () => {
   const html = renderToStaticMarkup(
     <ActivityBlock
