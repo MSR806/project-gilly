@@ -5,7 +5,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { z } from "zod";
 import { isAllowed } from "./access.ts";
-import { type CatalogTool, type McpGateway, makeRealMcp, NotConnectedError } from "./mcp.ts";
+import {
+  type CatalogTool,
+  type McpGateway,
+  McpToolError,
+  makeRealMcp,
+  NotConnectedError,
+} from "./mcp.ts";
 import { clearOAuth, VaultOAuthProvider } from "./oauth.ts";
 import { allTools, connectorMeta, getMcpConnector, getTool, mcpConnectors } from "./registry.ts";
 import type { Vault } from "./vault.ts";
@@ -261,6 +267,7 @@ export function createGatewayServer(deps: {
       } catch (err) {
         // An OAuth connector with no/invalid tokens is not_connected, not a provider fault.
         if (err instanceof NotConnectedError) return { error: "not_connected" };
+        if (err instanceof McpToolError) return { error: "provider_error", details: err.details };
         return { error: "provider_error" };
       }
       if (result === timeout) return { error: "timeout" };

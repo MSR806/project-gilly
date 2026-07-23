@@ -46,9 +46,10 @@ export function Markdown({ children }: { children: string }) {
           th: ({ children: cellChildren }) => (
             <th className="border-b bg-muted px-3 py-2 font-medium">{cellChildren}</th>
           ),
-          td: ({ children: cellChildren }) => (
-            <td className="border-b px-3 py-2 last:border-b-0">{cellChildren}</td>
+          tr: ({ children: rowChildren }) => (
+            <tr className="border-b last:border-b-0">{rowChildren}</tr>
           ),
+          td: ({ children: cellChildren }) => <td className="px-3 py-2">{cellChildren}</td>,
         }}
       >
         {children}

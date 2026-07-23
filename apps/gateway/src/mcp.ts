@@ -22,6 +22,14 @@ export class NotConnectedError extends Error {
   }
 }
 
+/** An MCP tool returned `isError`; retain its normalized content for the authorized caller. */
+export class McpToolError extends Error {
+  constructor(readonly details: unknown) {
+    super("MCP tool returned an error");
+    this.name = "McpToolError";
+  }
+}
+
 /**
  * The gateway's view of an MCP backend. An interface so the server/registry can be driven offline
  * with a fake — the real impl below is the only thing that touches the network / spawns processes.
@@ -172,7 +180,7 @@ export function makeRealMcp(deps: { db: Db; vault: Vault; gatewayUrl: string }):
           name: upstreamName,
           arguments: (args as Record<string, unknown>) ?? {},
         });
-        if (res.isError) throw new Error("mcp tool returned isError");
+        if (res.isError) throw new McpToolError(normalizeMcpResult(res));
         return normalizeMcpResult(res);
       } catch (err) {
         drop(connector.name);

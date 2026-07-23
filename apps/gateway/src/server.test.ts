@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createDb, createGatewayToken, getCredential, schema, setCredential } from "@gilly/db";
-import { type McpGateway, NotConnectedError } from "./mcp.ts";
+import { type McpGateway, McpToolError, NotConnectedError } from "./mcp.ts";
 import { createGatewayServer } from "./server.ts";
 import { makeVault } from "./vault.ts";
 
@@ -565,6 +565,23 @@ test("mcp callTool throwing → provider_error", async () => {
     input: {},
   });
   expect(await res.json()).toEqual({ error: "provider_error" });
+});
+
+test("mcp tool errors preserve normalized provider details", async () => {
+  const mcp = fakeMcp();
+  mcp.callTool = async () => {
+    throw new McpToolError({ code: "invalid_definition", message: "Unknown event property" });
+  };
+  const { fetch, token, vault, db } = setup(["github.*"], { mcp });
+  setCredential(db, "github", "github_pat", vault.encrypt("pat"));
+  const res = await post(fetch, "/invoke", auth(token), {
+    tool: "github.create_issue",
+    input: {},
+  });
+  expect(await res.json()).toEqual({
+    error: "provider_error",
+    details: { code: "invalid_definition", message: "Unknown event property" },
+  });
 });
 
 // --- OAuth connector (jira) — offline via a fake mcp that reports "not connected" ---
