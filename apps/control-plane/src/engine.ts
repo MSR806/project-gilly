@@ -17,6 +17,7 @@ import {
   listGrants,
   migrateLegacyAgentTools,
   setHarnessSession,
+  validateAgentHarness,
 } from "@gilly/db";
 import type { SkillBundle } from "@gilly/harness-protocol";
 import type { RuntimeProvider, StreamEvent } from "@gilly/runtime";
@@ -177,6 +178,7 @@ export function createEngine(deps: {
       // Resolve instructions (skills) before invoking. May throw on a misconfigured agent
       // (unknown skill name) — caught below and recorded as a failed run.
       const skillBundles = skillsFor(agent);
+      validateAgentHarness(db, agent);
 
       // The agent's exact tools define catalog visibility. Grants are checked only on invocation,
       // so an ungranted user can discover a relevant tool and receive a useful access error.
@@ -206,11 +208,19 @@ export function createEngine(deps: {
         `[engine] run start run=${runId} agent=${agent.id} session=${sessionId} gatewayToolCount=${gatewayTools.length} grantCount=${grants.length} inputChars=${message.length}`,
       );
 
+      const session = getSessionById(db, sessionId);
+      if (session?.harnessId && session.harnessId !== agent.harness.id) {
+        setHarnessSession(db, sessionId, agent.harness.id, null);
+      }
+      const resumeSessionId =
+        session?.harnessId === agent.harness.id
+          ? (session.harnessSessionId ?? undefined)
+          : undefined;
       iterator = runtime
         .invokeStream({
           agent,
           userMessage: message,
-          resumeSessionId: getSessionById(db, sessionId)?.harnessSessionId ?? undefined,
+          resumeSessionId,
           // Stable per-Gilly-session workspace, so follow-ups see files earlier runs made.
           workspace: { provider: "local", handle: sessionId },
           ...(skillBundles.length ? { skills: skillBundles } : {}),
@@ -226,7 +236,7 @@ export function createEngine(deps: {
         if (event.type === "token") {
           accumulated += event.text;
         } else if (event.type === "done") {
-          if (event.harnessSessionId) setHarnessSession(db, sessionId, event.harnessSessionId);
+          setHarnessSession(db, sessionId, agent.harness.id, event.harnessSessionId);
           completeRun(db, runId, event.finalText || accumulated);
           console.log(
             `[engine] run done run=${runId} agent=${agent.id} outputChars=${(event.finalText || accumulated).length}`,
@@ -286,6 +296,12 @@ export function createEngine(deps: {
       yield { type: "error", error: `Unknown agent: ${input.agentId}` };
       return;
     }
+    try {
+      validateAgentHarness(db, agent);
+    } catch (error) {
+      yield { type: "error", error: error instanceof Error ? error.message : String(error) };
+      return;
+    }
     const session = getOrCreateSession(db, {
       agentId: input.agentId,
       source: input.source,
@@ -299,6 +315,7 @@ export function createEngine(deps: {
   function start(input: MessageInput): { runId: string } {
     const agent = getAgent(input.agentId);
     if (!agent) throw new Error(`Unknown agent: ${input.agentId}`);
+    validateAgentHarness(db, agent);
     const session = getOrCreateSession(db, {
       agentId: input.agentId,
       source: input.source,
@@ -328,12 +345,22 @@ export function createEngine(deps: {
    * stream the channel renders; the Run is created eagerly so the active-run guard is reliable.
    */
   async function handle(input: HandleInput): Promise<{ queued: boolean }> {
-    const agent = getAgent(input.agentId);
+    let agent = getAgent(input.agentId);
     if (!agent) {
       await input.run({
         refs: input.ref ? [input.ref] : [],
         message: input.userMessage,
         events: oneError(`Unknown agent: ${input.agentId}`),
+      });
+      return { queued: false };
+    }
+    try {
+      validateAgentHarness(db, agent);
+    } catch (error) {
+      await input.run({
+        refs: input.ref ? [input.ref] : [],
+        message: input.userMessage,
+        events: oneError(error instanceof Error ? error.message : String(error)),
       });
       return { queued: false };
     }
@@ -372,6 +399,26 @@ export function createEngine(deps: {
       raw = batch.map((b) => b.input).join("\n\n");
       composed = raw;
       refs = batch.map((b) => b.ref).filter((r): r is string => r !== null);
+
+      agent = getAgent(input.agentId);
+      if (!agent) {
+        await input.run({
+          refs,
+          message: raw,
+          events: oneError(`Unknown agent: ${input.agentId}`),
+        });
+        break;
+      }
+      try {
+        validateAgentHarness(db, agent);
+      } catch (error) {
+        await input.run({
+          refs,
+          message: raw,
+          events: oneError(error instanceof Error ? error.message : String(error)),
+        });
+        break;
+      }
     }
     return { queued: false };
   }

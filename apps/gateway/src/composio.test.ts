@@ -64,9 +64,8 @@ function fakeClient(
           },
           async execute(slug: string) {
             log.push(`execute:${slug}`);
-            return slug === "GMAIL_FAIL"
-              ? { error: "No connected account" }
-              : { data: { ok: true } };
+            if (slug === "GMAIL_FAIL") return { error: "No connected account" };
+            return slug === "GMAIL_EMPTY" ? {} : { data: { ok: true } };
           },
         };
       },
@@ -129,6 +128,7 @@ test("service lists connected/no-auth tools and recreates the session when the k
     "https://connect.composio.dev/link/1",
   );
   expect(await service.execute("GMAIL_SEND_EMAIL", {})).toEqual({ ok: true });
+  expect(await service.execute("GMAIL_EMPTY", {})).toBeNull();
   key = "key-2";
   await service.listTools();
   expect(log.filter((entry) => entry === "create:gilly-shared")).toHaveLength(2);

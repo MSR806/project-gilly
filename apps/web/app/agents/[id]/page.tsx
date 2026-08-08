@@ -1,6 +1,5 @@
 "use client";
 
-import { Bot } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -9,12 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import AgentForm, { type AgentValues } from "../AgentForm";
 import { parseAgentValues } from "../agent-form-helpers";
+import HarnessImage from "../HarnessImage";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
 
 export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [agent, setAgent] = useState<AgentValues | null>(null);
+  const [harnessImages, setHarnessImages] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
@@ -27,6 +28,14 @@ export default function AgentDetailPage() {
       .then(parseAgentValues)
       .then(setAgent)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load agent"));
+    fetch(`${API_BASE}/harnesses`)
+      .then((r) => r.json() as Promise<{ id: string; image?: string }[]>)
+      .then((harnesses) =>
+        setHarnessImages(
+          Object.fromEntries(harnesses.flatMap(({ id, image }) => (image ? [[id, image]] : []))),
+        ),
+      )
+      .catch(() => setHarnessImages({}));
   }, [id]);
 
   return (
@@ -42,15 +51,17 @@ export default function AgentDetailPage() {
       ) : (
         <>
           <div className="flex items-center gap-4">
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl border bg-card">
-              <Bot className="size-6 text-muted-foreground" />
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-white p-2.5 ring-1 ring-black/10">
+              <HarnessImage src={harnessImages[agent.harness.id]} size={48} />
             </div>
             <div className="min-w-0 flex-1">
               <h1 className="text-xl font-semibold tracking-tight">{agent.name}</h1>
               <p className="text-sm text-muted-foreground">
                 <code className="font-mono text-xs">{agent.id}</code>
                 <span className="mx-2">·</span>
-                <code className="font-mono text-xs">{agent.model}</code>
+                <code className="font-mono text-xs">
+                  {agent.harness.id} · {agent.harness.config.model}
+                </code>
               </p>
             </div>
             {!editing ? (

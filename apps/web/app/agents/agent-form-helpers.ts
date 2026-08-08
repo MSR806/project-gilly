@@ -1,7 +1,14 @@
-import { AgentConfig, ModelInfo as ModelInfoSchema } from "@gilly/core";
+import { AgentConfig, HarnessDefinition as HarnessDefinitionSchema } from "@gilly/core";
 
 export type AgentValues = ReturnType<typeof AgentConfig.parse>;
-export type ModelInfo = ReturnType<typeof ModelInfoSchema.parse>;
+export type HarnessDefinition = ReturnType<typeof HarnessDefinitionSchema.parse>;
+
+/** Validate the registry returned by the control plane. */
+export function parseHarnessRegistry(value: unknown): HarnessDefinition[] {
+  const parsed = HarnessDefinitionSchema.array().safeParse(value);
+  if (!parsed.success) throw new Error("Invalid harness registry");
+  return parsed.data;
+}
 
 export type GatewayTool = {
   name: string;
@@ -12,46 +19,20 @@ export type GatewayTool = {
   connected: boolean;
 };
 
-export type ModelOptionGroup = {
-  label: string;
-  options: { value: string; label: string }[];
-};
-
 export type GatewayToolGroup = {
   label: string;
   options: { value: string; description?: string }[];
 };
 
-const PROVIDERS = [
-  { provider: "anthropic", label: "Anthropic" },
-  { provider: "openai", label: "OpenAI" },
-] as const;
-
-/** Validate the model catalog returned by the control plane. */
-export function parseModelCatalog(value: unknown): ModelInfo[] {
-  const parsed = ModelInfoSchema.array().safeParse(value);
-  if (!parsed.success) throw new Error("Invalid model catalog");
-  return parsed.data;
-}
-
-/** Group catalog models in picker order, preserving an unlisted current model as a safe fallback. */
-export function modelOptionGroups(models: readonly ModelInfo[], currentModel: string) {
-  const groups: ModelOptionGroup[] = PROVIDERS.map(({ provider, label }) => ({
-    label,
-    options: models
-      .filter((model) => model.provider === provider)
-      .map((model) => ({ value: model.id, label: model.label })),
-  })).filter((group) => group.options.length > 0);
-  const currentIsCatalogued = models.some((model) => model.id === currentModel);
-
-  if (currentModel && !currentIsCatalogued) {
-    groups.unshift({
-      label: "Current / legacy",
-      options: [{ value: currentModel, label: `${currentModel} (current model)` }],
-    });
-  }
-
-  return { groups, currentIsCatalogued };
+/** Resolve the selected enabled harness and whether its current model is offered. */
+export function harnessSelection(
+  harnesses: readonly HarnessDefinition[],
+  harness: AgentValues["harness"],
+) {
+  const enabled = harnesses.filter((candidate) => candidate.enabled);
+  const selected = enabled.find((candidate) => candidate.id === harness.id);
+  const modelValid = selected?.models.some((model) => model.id === harness.config.model) ?? false;
+  return { enabled, selected, modelValid, valid: !!selected && modelValid };
 }
 
 /** Validate and unwrap the concrete gateway tool catalog. */

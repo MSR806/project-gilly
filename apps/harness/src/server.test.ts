@@ -11,21 +11,25 @@ const completed = (finalText: string): InvocationResult => ({
 
 const emptyStream = async function* (): AsyncIterable<StreamEvent> {};
 
-function request(harnessType?: "anthropic" | "openai"): InvocationRequest {
+function request(harnessId: string): InvocationRequest {
   return {
-    ...(harnessType ? { harnessType } : {}),
-    agent: { id: "a", name: "A", model: "test-model", systemPrompt: "do x" },
+    agent: {
+      id: "a",
+      name: "A",
+      harness: { id: harnessId, config: { model: "test-model" } },
+      systemPrompt: "do x",
+    },
     userMessage: "hello",
   };
 }
 
 function runners(
-  anthropicRun: HarnessRunners["anthropic"]["runLoop"] = async () => completed("claude"),
-  openaiRun: HarnessRunners["openai"]["runLoop"] = async () => completed("openai"),
+  claudeRun: HarnessRunners["claude"]["runLoop"] = async () => completed("claude"),
+  codexRun: HarnessRunners["codex"]["runLoop"] = async () => completed("codex"),
 ): HarnessRunners {
   return {
-    anthropic: { runLoop: anthropicRun, runStream: emptyStream },
-    openai: { runLoop: openaiRun, runStream: emptyStream },
+    claude: { runLoop: claudeRun, runStream: emptyStream },
+    codex: { runLoop: codexRun, runStream: emptyStream },
   };
 }
 
@@ -46,22 +50,22 @@ test("POST /invocations rejects a malformed body with 400", async () => {
   expect(res.status).toBe(400);
 });
 
-test("POST /invocations defaults to Anthropic and dispatches explicit OpenAI requests", async () => {
+test("POST /invocations dispatches only by explicit agent harness id", async () => {
   const called: string[] = [];
   const server = createServer(
     runners(
       async () => {
-        called.push("anthropic");
+        called.push("claude");
         return completed("claude");
       },
       async () => {
-        called.push("openai");
-        return completed("openai");
+        called.push("codex");
+        return completed("codex");
       },
     ),
   );
 
-  for (const invocation of [request(), request("openai")]) {
+  for (const invocation of [request("claude"), request("codex")]) {
     const res = await server.fetch(
       new Request("http://localhost/invocations", {
         method: "POST",
@@ -70,13 +74,24 @@ test("POST /invocations defaults to Anthropic and dispatches explicit OpenAI req
     );
     expect(res.status).toBe(200);
   }
-  expect(called).toEqual(["anthropic", "openai"]);
+  expect(called).toEqual(["claude", "codex"]);
+});
+
+test("POST /invocations rejects an uncompiled harness with a stable 400", async () => {
+  const res = await createServer(runners()).fetch(
+    new Request("http://localhost/invocations", {
+      method: "POST",
+      body: JSON.stringify(request("custom")),
+    }),
+  );
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({ error: 'Unknown harness runner: "custom"' });
 });
 
 test("POST /invocations/stream forwards cancellation and closes its source", async () => {
   let cancelled = false;
   let aborted = false;
-  async function* openaiStream(
+  async function* codexStream(
     _request: InvocationRequest,
     signal?: AbortSignal,
   ): AsyncIterable<StreamEvent> {
@@ -91,11 +106,11 @@ test("POST /invocations/stream forwards cancellation and closes its source", asy
     }
   }
   const configured = runners();
-  configured.openai.runStream = openaiStream;
+  configured.codex.runStream = codexStream;
   const res = await createServer(configured).fetch(
     new Request("http://localhost/invocations/stream", {
       method: "POST",
-      body: JSON.stringify(request("openai")),
+      body: JSON.stringify(request("codex")),
     }),
   );
   expect(res.status).toBe(200);

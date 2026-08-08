@@ -22,6 +22,8 @@ export type Session = {
   sourceKey: string;
   /** Harness session id used to resume the loop; set after the first run. */
   harnessSessionId: string | null;
+  /** Harness that owns `harnessSessionId`; null when there is no resumable harness session. */
+  harnessId: string | null;
   createdAt: number;
 };
 

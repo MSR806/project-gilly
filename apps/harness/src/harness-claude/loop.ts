@@ -176,7 +176,7 @@ export function buildOptions(
   ];
 
   return {
-    model: req.agent.model,
+    model: req.agent.harness.config.model,
     allowedTools,
     ...(req.gateway ? { mcpServers: { gateway: makeGatewayMcpServer(req.gateway) } } : {}),
     // The SDK REPLACES the subprocess env entirely, so spread process.env to keep

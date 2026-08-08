@@ -1,16 +1,19 @@
 "use client";
 
-import { Bot, Plus, Sparkles } from "lucide-react";
+import { Plus, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import HarnessImage from "./HarnessImage";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
 
-type Agent = { id: string; name: string; model: string };
+type Agent = { id: string; name: string; harness: { id: string; config: { model: string } } };
+type Harness = { id: string; image?: string };
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[] | null>(null);
+  const [harnessImages, setHarnessImages] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -18,6 +21,14 @@ export default function AgentsPage() {
       .then((r) => r.json() as Promise<Agent[]>)
       .then(setAgents)
       .catch(() => setError("Failed to load agents"));
+    fetch(`${API_BASE}/harnesses`)
+      .then((r) => r.json() as Promise<Harness[]>)
+      .then((harnesses) =>
+        setHarnessImages(
+          Object.fromEntries(harnesses.flatMap(({ id, image }) => (image ? [[id, image]] : []))),
+        ),
+      )
+      .catch(() => setHarnessImages({}));
   }, []);
 
   useEffect(load, [load]);
@@ -61,15 +72,17 @@ export default function AgentsPage() {
               key={agent.id}
               className="flex items-center gap-4 rounded-xl border bg-card p-4 transition-colors hover:border-ring"
             >
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-background">
-                <Bot className="size-4 text-muted-foreground" />
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-white p-2 ring-1 ring-black/10">
+                <HarnessImage src={harnessImages[agent.harness.id]} size={40} />
               </div>
               <Link href={`/agents/${agent.id}`} className="min-w-0 flex-1">
                 <p className="font-medium">{agent.name}</p>
                 <p className="truncate text-sm text-muted-foreground">
                   <code className="font-mono text-xs">{agent.id}</code>
                   <span className="mx-2">·</span>
-                  <code className="font-mono text-xs">{agent.model}</code>
+                  <code className="font-mono text-xs">
+                    {agent.harness.id} · {agent.harness.config.model}
+                  </code>
                 </p>
               </Link>
               <div className="flex shrink-0 gap-2">

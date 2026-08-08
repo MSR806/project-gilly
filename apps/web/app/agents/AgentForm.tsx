@@ -1,5 +1,6 @@
 "use client";
 
+import { CheckIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -8,9 +9,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -20,12 +19,13 @@ import {
   type AgentValues,
   type GatewayTool,
   gatewayToolGroups,
-  type ModelInfo,
-  modelOptionGroups,
+  type HarnessDefinition,
+  harnessSelection,
   parseAgentValues,
   parseGatewayTools,
-  parseModelCatalog,
+  parseHarnessRegistry,
 } from "./agent-form-helpers";
+import HarnessImage from "./HarnessImage";
 
 export type { AgentValues } from "./agent-form-helpers";
 
@@ -47,7 +47,12 @@ const TOOL_GROUPS: Group[] = [
   },
 ];
 
-const EMPTY: AgentValues = { id: "", name: "", model: "claude-sonnet-4-5", systemPrompt: "" };
+const EMPTY: AgentValues = {
+  id: "",
+  name: "",
+  harness: { id: "", config: { model: "" } },
+  systemPrompt: "",
+};
 
 /** Derive a URL-safe handle from the agent's name (lowercase, hyphenated). */
 const slugify = (s: string) =>
@@ -72,8 +77,8 @@ export default function AgentForm({
 }) {
   const router = useRouter();
   const [values, setValues] = useState<AgentValues>(initial ?? EMPTY);
-  const [models, setModels] = useState<ModelInfo[]>([]);
-  const [modelStatus, setModelStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [harnesses, setHarnesses] = useState<HarnessDefinition[]>([]);
+  const [harnessStatus, setHarnessStatus] = useState<"loading" | "ready" | "error">("loading");
   const [allSkills, setAllSkills] = useState<{ name: string; description: string }[]>([]);
   const [allGatewayTools, setAllGatewayTools] = useState<GatewayTool[]>([]);
   const [gatewayToolError, setGatewayToolError] = useState(false);
@@ -81,18 +86,18 @@ export default function AgentForm({
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_BASE}/models`)
+    fetch(`${API_BASE}/harnesses`)
       .then((r) => {
         if (!r.ok) throw new Error(`Request failed (${r.status})`);
         return r.json();
       })
-      .then((catalog) => {
-        setModels(parseModelCatalog(catalog));
-        setModelStatus("ready");
+      .then((registry) => {
+        setHarnesses(parseHarnessRegistry(registry));
+        setHarnessStatus("ready");
       })
       .catch(() => {
-        setModels([]);
-        setModelStatus("error");
+        setHarnesses([]);
+        setHarnessStatus("error");
       });
     fetch(`${API_BASE}/skills`)
       .then((r) => r.json() as Promise<{ name: string; description: string }[]>)
@@ -148,10 +153,10 @@ export default function AgentForm({
     }
   }
 
-  const modelOptions = modelOptionGroups(models, values.model);
-  const selectedModelLabel = modelOptions.groups
-    .flatMap((group) => group.options)
-    .find((option) => option.value === values.model)?.label;
+  const selection = harnessSelection(harnesses, values.harness);
+  const selectedModelName = selection.selected?.models.find(
+    (model) => model.id === values.harness.config.model,
+  )?.name;
   const concreteToolGroups = gatewayToolGroups(allGatewayTools, values.gatewayTools ?? []);
 
   return (
@@ -176,35 +181,84 @@ export default function AgentForm({
         )}
       </div>
 
+      <fieldset className="grid gap-2">
+        <legend className="text-sm font-medium">Harness</legend>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {selection.enabled.map((harness) => {
+            const selected = values.harness.id === harness.id;
+            return (
+              <label
+                key={harness.id}
+                className={`relative min-w-0 cursor-pointer rounded-xl border p-3 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-2 ${
+                  selected
+                    ? "border-foreground bg-accent"
+                    : "border-border hover:border-foreground/30 hover:bg-accent/50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="agent-harness"
+                  value={harness.id}
+                  checked={selected}
+                  className="sr-only"
+                  onChange={() => set("harness", { id: harness.id, config: { model: "" } })}
+                />
+                <span className="flex min-w-0 items-center gap-3 pr-5">
+                  <span className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-white p-2.5 ring-1 ring-black/10">
+                    <HarnessImage src={harness.image} size={48} />
+                  </span>
+                  <span className="min-w-0 text-left">
+                    <span className="block truncate text-sm font-medium">{harness.name}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {harness.models.length} {harness.models.length === 1 ? "model" : "models"}
+                    </span>
+                  </span>
+                </span>
+                {selected ? (
+                  <span className="absolute top-2 right-2 flex size-5 items-center justify-center rounded-full bg-foreground text-background">
+                    <CheckIcon className="size-3" aria-hidden="true" />
+                  </span>
+                ) : null}
+              </label>
+            );
+          })}
+        </div>
+        {harnessStatus === "loading" ? (
+          <p className="text-xs text-muted-foreground">Loading available harnesses…</p>
+        ) : harnessStatus === "error" ? (
+          <p className="text-xs text-destructive">Harness registry unavailable.</p>
+        ) : values.harness.id && !selection.selected ? (
+          <p className="text-xs text-destructive">
+            This harness is unavailable or disabled. Select a replacement before saving.
+          </p>
+        ) : null}
+      </fieldset>
+
       <div className="grid gap-2">
         <Label htmlFor="agent-model">Model</Label>
-        <Select value={values.model} onValueChange={(model) => model && set("model", model)}>
+        <Select
+          value={values.harness.config.model}
+          disabled={!selection.selected}
+          onValueChange={(model) =>
+            model && set("harness", { id: values.harness.id, config: { model } })
+          }
+        >
           <SelectTrigger id="agent-model" className="w-full">
-            <SelectValue>{selectedModelLabel ?? values.model}</SelectValue>
+            <SelectValue placeholder="Select a model">
+              {(selectedModelName ?? values.harness.config.model) || undefined}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {modelOptions.groups.map((group) => (
-              <SelectGroup key={group.label}>
-                <SelectLabel>{group.label}</SelectLabel>
-                {group.options.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
+            {selection.selected?.models.map((model) => (
+              <SelectItem key={model.id} value={model.id}>
+                {model.name}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        {modelStatus === "loading" ? (
-          <p className="text-xs text-muted-foreground">Loading available models…</p>
-        ) : modelStatus === "error" ? (
-          <p className="text-xs text-muted-foreground">
-            Model catalog unavailable. The current selection is preserved and the agent can still be
-            saved.
-          </p>
-        ) : !modelOptions.currentIsCatalogued ? (
-          <p className="text-xs text-muted-foreground">
-            This agent uses a model outside the current catalog. Keep it or select a replacement.
+        {selection.selected && values.harness.config.model && !selection.modelValid ? (
+          <p className="text-xs text-destructive">
+            This model is not offered by the selected harness. Select a replacement before saving.
           </p>
         ) : null}
       </div>
@@ -278,7 +332,7 @@ export default function AgentForm({
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       <div className="flex gap-2">
-        <Button type="submit" disabled={saving}>
+        <Button type="submit" disabled={saving || !selection.valid}>
           {saving ? "Saving…" : mode === "create" ? "Create & chat" : "Save"}
         </Button>
         <Button

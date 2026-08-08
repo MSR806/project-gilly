@@ -8,7 +8,7 @@ import {
   setAdmin,
   upsertUserBySlackId,
 } from "@gilly/db";
-import { LocalRuntimeProvider, RoutingRuntimeProvider } from "@gilly/runtime";
+import { LocalRuntimeProvider } from "@gilly/runtime";
 import type { Channel } from "./channels/channel.ts";
 import { createSlackManager } from "./channels/slack-manager.ts";
 import { createWebChannel } from "./channels/web.ts";
@@ -52,7 +52,7 @@ const vault = makeVault(vaultKey);
 const webUser = upsertUserBySlackId(db, { slackUserId: "web", name: "Web (shared)" });
 setAdmin(db, webUser.id, true);
 
-const runtime = new RoutingRuntimeProvider(new LocalRuntimeProvider(HARNESS_URL));
+const runtime = new LocalRuntimeProvider(HARNESS_URL);
 const engine = createEngine({
   db,
   runtime,

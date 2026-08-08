@@ -3,7 +3,12 @@ import type { InvocationRequest, StreamEvent } from "@gilly/harness-protocol";
 import { LocalRuntimeProvider } from "./local.ts";
 
 const req: InvocationRequest = {
-  agent: { id: "a", name: "A", model: "m", systemPrompt: "p" },
+  agent: {
+    id: "a",
+    name: "A",
+    harness: { id: "claude", config: { model: "m" } },
+    systemPrompt: "p",
+  },
   userMessage: "hi",
 };
 

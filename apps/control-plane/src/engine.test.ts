@@ -6,11 +6,15 @@ import {
   enqueueFollowUp,
   getAgent as getDbAgent,
   getGatewayToken,
+  getHarness,
   getOrCreateSession,
   getRun,
+  getSessionBySourceKey,
   listRunSteps,
   schema,
   setAdmin,
+  setHarnessSession,
+  updateHarness,
   upsertUserBySlackId,
 } from "@gilly/db";
 import type { InvocationRequest } from "@gilly/harness-protocol";
@@ -22,7 +26,7 @@ type InvocationResult = Awaited<ReturnType<RuntimeProvider["invoke"]>>;
 const agent: AgentConfig = {
   id: "echo",
   name: "Echo",
-  model: "claude-sonnet-4-5",
+  harness: { id: "claude", config: { model: "claude-sonnet-4-5" } },
   systemPrompt: "Be terse.",
 };
 
@@ -70,7 +74,73 @@ test("stream forwards events and persists session + run on done", async () => {
 
   const got = await collect(engine.stream({ ...baseInput, userMessage: "hi" }));
   expect(got).toEqual(events);
-  expect(getOrCreateSession(db, baseInput).harnessSessionId).toBe("hs-9");
+  expect(getOrCreateSession(db, baseInput)).toMatchObject({
+    harnessId: "claude",
+    harnessSessionId: "hs-9",
+  });
+});
+
+test("stream resumes only a session owned by the agent's current harness", async () => {
+  const db = createDb(":memory:");
+  const session = getOrCreateSession(db, baseInput);
+  setHarnessSession(db, session.id, "codex", "thread-1");
+  const { runtime, seen } = capturingRuntime(db);
+  const engine = createEngine({ db, runtime, getAgent });
+
+  await collect(engine.stream({ ...baseInput, userMessage: "hi" }));
+  expect(seen.req?.resumeSessionId).toBeUndefined();
+});
+
+test("a failed harness switch clears the old resumable session", async () => {
+  const db = createDb(":memory:");
+  const session = getOrCreateSession(db, baseInput);
+  setHarnessSession(db, session.id, "claude", "claude-session");
+  const codexAgent: AgentConfig = {
+    ...agent,
+    harness: { id: "codex", config: { model: "gpt-5.2" } },
+  };
+  const failing = createEngine({
+    db,
+    runtime: fakeRuntime(
+      { status: "completed", finalText: "", harnessSessionId: null, error: null },
+      [{ type: "error", error: "failed" }],
+    ),
+    getAgent: (id) => (id === "echo" ? codexAgent : undefined),
+  });
+
+  await collect(failing.stream({ ...baseInput, userMessage: "switch" }));
+  expect(getSessionBySourceKey(db, baseInput.sourceKey)).toMatchObject({
+    harnessId: null,
+    harnessSessionId: null,
+  });
+
+  const { runtime, seen } = capturingRuntime(db);
+  const switchedBack = createEngine({ db, runtime, getAgent });
+  await collect(switchedBack.stream({ ...baseInput, userMessage: "back" }));
+  expect(seen.req?.resumeSessionId).toBeUndefined();
+});
+
+test("stream rejects a disabled harness before invoking the runtime", async () => {
+  const db = createDb(":memory:");
+  const claude = getHarness(db, "claude");
+  updateHarness(db, "claude", { ...(claude as NonNullable<typeof claude>), enabled: false });
+  let called = false;
+  const runtime = fakeRuntime({
+    status: "completed",
+    finalText: "",
+    harnessSessionId: null,
+    error: null,
+  });
+  runtime.invokeStream = async function* () {
+    called = true;
+    yield { type: "error", error: "runtime should not be called" };
+  };
+  const engine = createEngine({ db, runtime, getAgent });
+
+  expect(await collect(engine.stream({ ...baseInput, userMessage: "hi" }))).toEqual([
+    { type: "error", error: 'Harness "claude" is disabled' },
+  ]);
+  expect(called).toBe(false);
 });
 
 test("stream yields an error event for an unknown agent", async () => {
@@ -253,7 +323,8 @@ function insertLegacyAgent(db: ReturnType<typeof createDb>) {
     .values({
       id: "legacy",
       name: "Legacy",
-      model: "m",
+      model: "claude-sonnet-4-5",
+      harnessId: "claude",
       systemPrompt: "Old",
       gatewayTools: null,
       connectors: JSON.stringify(["echo"]),
@@ -502,4 +573,55 @@ test("follow-ups queued mid-run are answered as one combined batch", async () =>
     { refs: ["ts1"], message: "msg1" },
     { refs: ["ts2", "ts3"], message: "msg2\n\nmsg3" },
   ]);
+});
+
+test("queued follow-ups use the agent's latest harness", async () => {
+  const db = createDb(":memory:");
+  const session = getOrCreateSession(db, baseInput);
+  const requests: InvocationRequest[] = [];
+  let currentAgent = agent;
+  const runtime: RuntimeProvider = {
+    name: "fake",
+    async invoke() {
+      return { status: "completed", finalText: "", harnessSessionId: null, error: null };
+    },
+    async *invokeStream(req) {
+      requests.push(req);
+      if (requests.length === 1) {
+        enqueueFollowUp(db, session.id, "follow-up", "ts2");
+        currentAgent = {
+          ...agent,
+          harness: { id: "codex", config: { model: "gpt-5.2" } },
+        };
+      }
+      yield {
+        type: "done",
+        finalText: "done",
+        harnessSessionId: requests.length === 1 ? "claude-session" : "codex-session",
+      };
+    },
+    async healthy() {
+      return true;
+    },
+  };
+  const engine = createEngine({
+    db,
+    runtime,
+    getAgent: (id) => (id === "echo" ? currentAgent : undefined),
+  });
+
+  await engine.handle({
+    ...baseInput,
+    userMessage: "first",
+    ref: "ts1",
+    run: async ({ events }) => {
+      await collect(events);
+    },
+  });
+
+  expect(requests.map(({ agent: requestAgent }) => requestAgent.harness.id)).toEqual([
+    "claude",
+    "codex",
+  ]);
+  expect(requests[1]?.resumeSessionId).toBeUndefined();
 });

@@ -1,4 +1,3 @@
-import type { ModelProvider } from "@gilly/core";
 import {
   InvocationRequest,
   type InvocationResult,
@@ -22,22 +21,20 @@ const json = (body: unknown, status = 200) =>
 type RunLoop = (request: InvocationRequest) => Promise<InvocationResult>;
 type RunStream = (request: InvocationRequest, signal?: AbortSignal) => AsyncIterable<StreamEvent>;
 
-export type HarnessRunners = Record<ModelProvider, { runLoop: RunLoop; runStream: RunStream }>;
-
-const DEFAULT_PROVIDER = "anthropic" satisfies ModelProvider;
+export type HarnessRunners = Record<"claude" | "codex", { runLoop: RunLoop; runStream: RunStream }>;
 
 const defaultRunners: HarnessRunners = {
-  anthropic: {
+  claude: {
     runLoop: runClaudeAgentLoop,
     runStream: (request, signal) => streamClaudeAgentLoop(request, undefined, signal),
   },
-  openai: {
+  codex: {
     runLoop: runOpenAiAgentLoop,
     runStream: (request, signal) => streamOpenAiAgentLoop(request, undefined, signal),
   },
 };
 
-/** AgentCore HTTP boundary that dispatches each request to its selected model harness. */
+/** AgentCore HTTP boundary that dispatches each request to its explicitly selected harness. */
 export function createServer(runners: HarnessRunners = defaultRunners) {
   return {
     async fetch(req: Request): Promise<Response> {
@@ -50,7 +47,8 @@ export function createServer(runners: HarnessRunners = defaultRunners) {
       if (req.method === "POST" && pathname === "/invocations") {
         const parsed = await parseRequest(req);
         if (parsed instanceof Response) return parsed;
-        const runner = runners[parsed.harnessType ?? DEFAULT_PROVIDER];
+        const runner = runnerFor(runners, parsed.agent.harness.id);
+        if (runner instanceof Response) return runner;
         return json(await runner.runLoop(parsed));
       }
 
@@ -60,7 +58,8 @@ export function createServer(runners: HarnessRunners = defaultRunners) {
 
         const encoder = new TextEncoder();
         const abort = new AbortController();
-        const runner = runners[parsed.harnessType ?? DEFAULT_PROVIDER];
+        const runner = runnerFor(runners, parsed.agent.harness.id);
+        if (runner instanceof Response) return runner;
         const iterator = runner.runStream(parsed, abort.signal)[Symbol.asyncIterator]();
         const stream = new ReadableStream<Uint8Array>({
           async pull(controller) {
@@ -86,6 +85,13 @@ export function createServer(runners: HarnessRunners = defaultRunners) {
       return json({ error: "not found" }, 404);
     },
   };
+}
+
+function runnerFor(runners: HarnessRunners, id: string) {
+  if (id !== "claude" && id !== "codex") {
+    return json({ error: `Unknown harness runner: "${id}"` }, 400);
+  }
+  return runners[id];
 }
 
 async function parseRequest(req: Request) {

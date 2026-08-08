@@ -271,7 +271,7 @@ export function createComposioService(deps: {
         if (isMissingConnection(message)) throw new ComposioNotConnectedError(message);
         throw new ComposioProviderError(message);
       }
-      return result.data;
+      return result.data ?? null;
     },
   };
 }

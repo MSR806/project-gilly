@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { providerFor, resolveCodexModel } from "@gilly/core";
+import { isDeferredOpenModel } from "@gilly/core";
 import type { InvocationRequest, InvocationResult, StreamEvent } from "@gilly/harness-protocol";
 import {
   Codex,
@@ -75,8 +75,12 @@ export function sandboxModeFor(tools: string[]): "read-only" | "workspace-write"
 /** Build headless thread options using Codex's native workspace sandbox. */
 export function buildThreadOptions(req: InvocationRequest, cwd: string): ThreadOptions {
   const tools = req.agent.tools ?? [];
+  const model = req.agent.harness.config.model;
+  if (isDeferredOpenModel(model)) {
+    throw new Error(`Open-source model support is disabled: ${model}`);
+  }
   return {
-    model: resolveCodexModel(req.agent.model).model,
+    model,
     workingDirectory: cwd,
     skipGitRepoCheck: true,
     approvalPolicy: "never",
@@ -116,8 +120,6 @@ const CODEX_ENV_ALLOWLIST = [
 
 /** Build per-invocation SDK options without writing secrets to config files. */
 export function buildCodexOptions(req: InvocationRequest, input: CodexOptionsInput): CodexOptions {
-  // Guard rejected model families before constructing any SDK or subprocess configuration.
-  providerFor(req.agent.model);
   const sourceEnv = input.env ?? process.env;
   const env: Record<string, string> = {};
   for (const key of CODEX_ENV_ALLOWLIST) {
@@ -140,7 +142,7 @@ export function buildCodexOptions(req: InvocationRequest, input: CodexOptionsInp
       include_only: ["HOME", "LANG", "LC_ALL", "PATH", "SHELL", "TMPDIR", "USER"],
     },
   };
-  const { serviceTier } = resolveCodexModel(req.agent.model);
+  const { serviceTier } = req.agent.harness.config;
   if (serviceTier) config.service_tier = serviceTier;
 
   const mcpServers: Record<string, LocalMcpServerEntry> = {};

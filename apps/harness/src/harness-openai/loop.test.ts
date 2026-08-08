@@ -33,7 +33,12 @@ import {
 } from "./loop.ts";
 
 const request: InvocationRequest = {
-  agent: { id: "helper", name: "Helper", model: "gpt-5.2", systemPrompt: "Be concise." },
+  agent: {
+    id: "helper",
+    name: "Helper",
+    harness: { id: "codex", config: { model: "gpt-5.2" } },
+    systemPrompt: "Be concise.",
+  },
   userMessage: "Help me",
   workspace: { provider: "local", handle: "session-1" },
 };
@@ -173,10 +178,16 @@ test("buildThreadOptions applies the native Codex sandbox", () => {
   });
   expect(
     buildThreadOptions(
-      { ...request, agent: { ...request.agent, model: "gpt-5.4-fast" } },
+      {
+        ...request,
+        agent: {
+          ...request.agent,
+          harness: { id: "codex", config: { model: "gpt-5.4-fast" } },
+        },
+      },
       "/workspace",
     ).model,
-  ).toBe("gpt-5.4");
+  ).toBe("gpt-5.4-fast");
   expect(
     buildThreadOptions({ ...request, agent: { ...request.agent, tools: ["Write"] } }, "/workspace")
       .sandboxMode,
@@ -189,6 +200,18 @@ test("buildThreadOptions applies the native Codex sandbox", () => {
     buildThreadOptions({ ...request, agent: { ...request.agent, tools: ["Bash"] } }, "/workspace")
       .networkAccessEnabled,
   ).toBe(true);
+  expect(() =>
+    buildThreadOptions(
+      {
+        ...request,
+        agent: {
+          ...request.agent,
+          harness: { id: "codex", config: { model: "gpt-oss-120b" } },
+        },
+      },
+      "/workspace",
+    ),
+  ).toThrow("Open-source model support is disabled");
 });
 
 test("buildCodexOptions supplies developer instructions and hides secrets from shell commands", () => {
@@ -226,22 +249,19 @@ test("buildCodexOptions accepts CODEX_API_KEY as a service-key alias", () => {
   ).toBe("codex-secret");
 });
 
-test("the GPT-5.4 Fast catalog variant enables Codex fast service tier", () => {
+test("explicit Codex serviceTier config enables the fast service tier", () => {
   expect(
     buildCodexOptions(
-      { ...request, agent: { ...request.agent, model: "gpt-5.4-fast" } },
+      {
+        ...request,
+        agent: {
+          ...request.agent,
+          harness: { id: "codex", config: { model: "gpt-5.4", serviceTier: "fast" } },
+        },
+      },
       { codexHome: "/state", env: { OPENAI_API_KEY: "key" } },
     ).config?.service_tier,
   ).toBe("fast");
-});
-
-test("buildCodexOptions rejects legacy GPT-OSS agents", () => {
-  expect(() =>
-    buildCodexOptions(
-      { ...request, agent: { ...request.agent, model: "gpt-oss-120b" } },
-      { codexHome: "/state", env: { OPENAI_API_KEY: "key" } },
-    ),
-  ).toThrow("Open-source model support is disabled");
 });
 
 test("formatCodexError hides verbose authentication retries", () => {

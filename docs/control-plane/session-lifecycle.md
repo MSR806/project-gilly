@@ -15,7 +15,7 @@ Gilly owns the product lifecycle. Runtime providers own the sandbox.
 | **Gilly Session** | Conversation/work identity, source mapping, run history, follow-up queue, status |
 | **Gilly Run** | One execution attempt inside a Session |
 | **Gilly Workspace** | The durable filesystem/workspace reference used by a Session |
-| **Harness session** | The agent-loop conversation state, such as a Claude SDK session |
+| **Harness session** | The agent-loop conversation state plus the harness ID that owns it |
 | **Runtime session** | The sandbox provider's execution context, such as an AgentCore runtime session |
 
 The important boundary: **Gilly's Session is the source of truth.** A runtime session ID, harness session ID, mount path, or workspace ID from a provider is stored as metadata on Gilly's records, not exposed as the product model.
@@ -32,6 +32,10 @@ The important boundary: **Gilly's Session is the source of truth.** A runtime se
 | **Workspace** | The filesystem state associated with the Session. In the MVP this is AgentCore-managed session storage. |
 
 This keeps retrying, resuming, and provider replacement clean. A failed Run does not erase the Session. A new Runtime can be attached to the same Session if the provider allows it. A follow-up creates another Run against the same Session and Workspace.
+
+A harness session ID is resumed only when its stored owner matches the agent's current harness ID.
+Changing an agent's harness starts fresh harness conversation state without replacing the Gilly
+Session, workspace, or Run history.
 
 ---
 

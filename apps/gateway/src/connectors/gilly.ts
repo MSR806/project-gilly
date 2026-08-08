@@ -5,9 +5,13 @@ import { z } from "zod";
 const cpUrl = () => process.env.GILLY_CONTROL_PLANE_URL ?? "http://localhost:4000";
 
 async function cp(path: string, init?: RequestInit): Promise<unknown> {
+  const headers = new Headers(init?.headers);
+  headers.set("content-type", "application/json");
+  const adminToken = process.env.GILLY_ADMIN_TOKEN;
+  if (adminToken) headers.set("x-admin-token", adminToken);
   const res = await fetch(`${cpUrl()}${path}`, {
     ...init,
-    headers: { "content-type": "application/json", ...init?.headers },
+    headers,
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) return { error: "control_plane_error", status: res.status, body };
@@ -31,8 +35,14 @@ export const gilly = defineConnector({
   auth: { kind: "none" },
   tools: [
     defineTool({
+      name: "gilly.list_harnesses",
+      description: "List Gilly harnesses, including enabled state and offered models.",
+      input: z.object({}),
+      handler: async () => cp("/api/harnesses"),
+    }),
+    defineTool({
       name: "gilly.list_agents",
-      description: "List Gilly agents with id, name, and model.",
+      description: "List Gilly agents with id, name, and nested harness selection.",
       input: z.object({}),
       handler: async () => cp("/api/agents"),
     }),
@@ -45,14 +55,14 @@ export const gilly = defineConnector({
     defineTool({
       name: "gilly.create_agent",
       description:
-        "Create a Gilly agent. Input is AgentConfig: id, name, model, systemPrompt, optional tools, skills, gatewayTools.",
+        "Create a Gilly agent. Input is AgentConfig: id, name, harness: { id, config: { model, optional serviceTier } }, systemPrompt, optional tools, skills, gatewayTools. Select an enabled harness and one of its offered models.",
       input: AgentConfig,
       handler: async (agent) => cp("/api/agents", { method: "POST", body: JSON.stringify(agent) }),
     }),
     defineTool({
       name: "gilly.update_agent",
       description:
-        "Patch a Gilly agent by id. Provide only fields to change: name, model, systemPrompt, tools, skills, gatewayTools.",
+        "Patch a Gilly agent by id. Provide only fields to change: name, systemPrompt, tools, skills, gatewayTools. Harness changes use the full nested harness field.",
       input: z.object({ id: z.string().min(1), patch: agentPatch }),
       handler: async ({ id, patch }) => {
         const current = await cp(`/api/agents/${encodeURIComponent(id)}`);
@@ -68,10 +78,10 @@ export const gilly = defineConnector({
       description:
         "Start a Gilly agent in the background. Returns a runId immediately; check it with gilly.get_run.",
       input: z.object({ id: z.string().min(1), message: z.string().min(1) }),
-      handler: async ({ id, message }) =>
+      handler: async ({ id, message }, { userId }) =>
         cp(`/api/agents/${encodeURIComponent(id)}/runs`, {
           method: "POST",
-          body: JSON.stringify({ message }),
+          body: JSON.stringify({ message, userId }),
         }),
     }),
     defineTool({

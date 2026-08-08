@@ -1,6 +1,8 @@
 import {
   AgentConfig,
   Grant,
+  HarnessDefinition,
+  HarnessModel,
   type Run,
   RunStep,
   type Session,
@@ -15,6 +17,7 @@ import {
   followUps,
   gatewayTokens,
   grants,
+  harnesses,
   runSteps,
   runs,
   sessions,
@@ -35,7 +38,13 @@ function rowToAgent(row: AgentRow): AgentConfig {
   return AgentConfig.parse({
     id: row.id,
     name: row.name,
-    model: row.model,
+    harness: {
+      id: row.harnessId,
+      config: {
+        model: row.model,
+        ...(row.serviceTier ? { serviceTier: row.serviceTier } : {}),
+      },
+    },
     systemPrompt: row.systemPrompt,
     tools: row.tools ? JSON.parse(row.tools) : undefined,
     skills: row.skills ? JSON.parse(row.skills) : undefined,
@@ -49,7 +58,9 @@ function agentToRow(cfg: AgentConfig, options: AgentWriteOptions = {}): AgentRow
   return {
     id: a.id,
     name: a.name,
-    model: a.model,
+    model: a.harness.config.model,
+    harnessId: a.harness.id,
+    serviceTier: a.harness.config.serviceTier ?? null,
     systemPrompt: a.systemPrompt,
     tools: a.tools?.length ? JSON.stringify(a.tools) : null,
     skills: a.skills?.length ? JSON.stringify(a.skills) : null,
@@ -81,8 +92,10 @@ export function createAgent(
   options: AgentWriteOptions = {},
 ): AgentConfig {
   if (getAgent(db, cfg.id)) throw new Error(`Agent "${cfg.id}" already exists`);
-  db.insert(agents).values(agentToRow(cfg, options)).run();
-  return cfg;
+  const agent = AgentConfig.parse(cfg);
+  validateAgentHarness(db, agent);
+  db.insert(agents).values(agentToRow(agent, options)).run();
+  return agent;
 }
 
 /** Replace an existing agent's config (id is immutable). Throws if it doesn't exist. */
@@ -93,11 +106,28 @@ export function updateAgent(
   options: AgentWriteOptions = {},
 ): AgentConfig {
   if (!getAgent(db, id)) throw new Error(`Agent "${id}" not found`);
-  const row = agentToRow({ ...cfg, id }, options);
+  const agent = AgentConfig.parse({ ...cfg, id });
+  validateAgentHarness(db, agent);
+  replaceAgent(db, id, agent, options);
+  return agent;
+}
+
+/** Boot-only file sync: persist schema-valid config even if its live harness is unavailable. */
+export function syncAgent(db: Db, cfg: AgentConfig, options: AgentWriteOptions = {}): AgentConfig {
+  const agent = AgentConfig.parse(cfg);
+  if (getAgent(db, agent.id)) replaceAgent(db, agent.id, agent, options);
+  else db.insert(agents).values(agentToRow(agent, options)).run();
+  return agent;
+}
+
+function replaceAgent(db: Db, id: string, agent: AgentConfig, options: AgentWriteOptions): void {
+  const row = agentToRow(agent, options);
   db.update(agents)
     .set({
       name: row.name,
       model: row.model,
+      harnessId: row.harnessId,
+      serviceTier: row.serviceTier,
       systemPrompt: row.systemPrompt,
       tools: row.tools,
       skills: row.skills,
@@ -106,7 +136,6 @@ export function updateAgent(
     })
     .where(eq(agents.id, id))
     .run();
-  return { ...cfg, id };
 }
 
 type GatewayToolIdentity = {
@@ -175,6 +204,58 @@ export function deleteAgent(db: Db, id: string): void {
   db.delete(agents).where(eq(agents.id, id)).run();
 }
 
+// --- Harness registry --------------------------------------------------------
+
+type HarnessRow = typeof harnesses.$inferSelect;
+
+function rowToHarness(row: HarnessRow): HarnessDefinition {
+  return HarnessDefinition.parse({
+    id: row.id,
+    name: row.name,
+    ...(row.image ? { image: row.image } : {}),
+    enabled: row.enabled === 1,
+    models: HarnessModel.array().parse(JSON.parse(row.models)),
+  });
+}
+
+export function listHarnesses(db: Db): HarnessDefinition[] {
+  return db.select().from(harnesses).orderBy(asc(harnesses.id)).all().map(rowToHarness);
+}
+
+export function getHarness(db: Db, id: string): HarnessDefinition | undefined {
+  const row = db.select().from(harnesses).where(eq(harnesses.id, id)).get();
+  return row ? rowToHarness(row) : undefined;
+}
+
+export function updateHarness(
+  db: Db,
+  id: string,
+  definition: HarnessDefinition,
+): HarnessDefinition {
+  if (!getHarness(db, id)) throw new Error(`Harness "${id}" not found`);
+  const harness = HarnessDefinition.parse({ ...definition, id });
+  db.update(harnesses)
+    .set({
+      name: harness.name,
+      image: harness.image ?? "",
+      enabled: harness.enabled ? 1 : 0,
+      models: JSON.stringify(harness.models),
+    })
+    .where(eq(harnesses.id, id))
+    .run();
+  return harness;
+}
+
+/** Shared create/update/invocation validation against the live registry. */
+export function validateAgentHarness(db: Db, agent: AgentConfig): void {
+  const harness = getHarness(db, agent.harness.id);
+  if (!harness) throw new Error(`Unknown harness: ${agent.harness.id}`);
+  if (!harness.enabled) throw new Error(`Harness "${harness.id}" is disabled`);
+  if (!harness.models.some((model) => model.id === agent.harness.config.model)) {
+    throw new Error(`Harness "${harness.id}" does not offer model "${agent.harness.config.model}"`);
+  }
+}
+
 /** Find the Session for a conversation key, creating it on first contact. */
 export function getOrCreateSession(
   db: Db,
@@ -182,7 +263,13 @@ export function getOrCreateSession(
 ): Session {
   const existing = db.select().from(sessions).where(eq(sessions.sourceKey, input.sourceKey)).get();
   if (existing) return existing;
-  const row = { id: crypto.randomUUID(), ...input, harnessSessionId: null, createdAt: now() };
+  const row = {
+    id: crypto.randomUUID(),
+    ...input,
+    harnessSessionId: null,
+    harnessId: null,
+    createdAt: now(),
+  };
   db.insert(sessions).values(row).run();
   return row;
 }
@@ -207,9 +294,17 @@ export function listSessions(db: Db, input: { agentId: string; source: string })
     .all();
 }
 
-/** Persist the harness session id so follow-ups resume the same loop. */
-export function setHarnessSession(db: Db, sessionId: string, harnessSessionId: string): void {
-  db.update(sessions).set({ harnessSessionId }).where(eq(sessions.id, sessionId)).run();
+/** Persist the raw harness session id and the harness that owns it. */
+export function setHarnessSession(
+  db: Db,
+  sessionId: string,
+  harnessId: string,
+  harnessSessionId: string | null,
+): void {
+  db.update(sessions)
+    .set({ harnessSessionId, harnessId: harnessSessionId ? harnessId : null })
+    .where(eq(sessions.id, sessionId))
+    .run();
 }
 
 /** True if the session already has a run in flight (enforces one active run per session). */

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MODEL_CATALOG } from "@gilly/core";
+import { BUILT_IN_HARNESSES } from "@gilly/core";
 import {
   appendRunStep,
   completeRun,
@@ -38,11 +38,79 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-test("GET /api/models returns the model catalog", async () => {
-  const res = await handler()(new Request("http://x/api/models"));
+test("harness registry API lists and updates definitions", async () => {
+  const fetch = handler();
+  const res = await fetch(new Request("http://x/api/harnesses"));
 
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual(MODEL_CATALOG);
+  expect(await res.json()).toEqual(
+    [...BUILT_IN_HARNESSES].sort((a, b) => a.id.localeCompare(b.id)),
+  );
+
+  const claude = BUILT_IN_HARNESSES.find((harness) => harness.id === "claude");
+  const update = await fetch(
+    new Request("http://x/api/harnesses/claude", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...claude, enabled: false }),
+    }),
+  );
+  expect(update.status).toBe(200);
+  expect(await update.json()).toMatchObject({ id: "claude", enabled: false });
+  expect(
+    (
+      await fetch(
+        new Request("http://x/api/harnesses/missing", {
+          method: "PUT",
+          body: JSON.stringify({ name: "Missing", enabled: true, models: [] }),
+        }),
+      )
+    ).status,
+  ).toBe(404);
+});
+
+test("agent API returns nested harness summaries and rejects unavailable selections", async () => {
+  const db = createDb(":memory:");
+  const fetch = createWebHandler({
+    engine: {} as ReturnType<typeof createEngine>,
+    db,
+    skillStore: {} as SkillStore,
+    port: 0,
+  });
+  const agent = {
+    id: "helper",
+    name: "Helper",
+    harness: { id: "codex", config: { model: "gpt-5.2" } },
+    systemPrompt: "Help.",
+  };
+  expect(
+    (
+      await fetch(
+        new Request("http://x/api/agents", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(agent),
+        }),
+      )
+    ).status,
+  ).toBe(201);
+  expect(await (await fetch(new Request("http://x/api/agents"))).json()).toEqual([
+    { id: "helper", name: "Helper", harness: agent.harness },
+  ]);
+
+  const bad = await fetch(
+    new Request("http://x/api/agents", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...agent,
+        id: "bad",
+        harness: { id: "codex", config: { model: "not-offered" } },
+      }),
+    }),
+  );
+  expect(bad.status).toBe(400);
+  expect(await bad.json()).toEqual({ error: 'Harness "codex" does not offer model "not-offered"' });
 });
 
 test("PUT credentials proxy injects x-admin-token and forwards the body", async () => {
@@ -300,14 +368,14 @@ test("POST /api/agents/:id/runs starts a background run; GET /api/runs/:id reads
     db,
     skillStore: {} as SkillStore,
     port: 0,
-    webUserId: "user-1",
+    adminToken: "admin-secret",
   });
 
   const res = await fetch(
-    new Request("http://x/api/agents/helper/runs", {
+    adminRequest("http://x/api/agents/helper/runs", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: "do it" }),
+      body: JSON.stringify({ message: "do it", userId: "user-1" }),
     }),
   );
 
@@ -322,18 +390,26 @@ test("POST /api/agents/:id/runs starts a background run; GET /api/runs/:id reads
   expect(String(seen?.sourceKey).startsWith("gateway:")).toBe(true);
 
   const bad = await fetch(
-    new Request("http://x/api/agents/helper/runs", {
+    adminRequest("http://x/api/agents/helper/runs", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({}),
     }),
   );
   expect(bad.status).toBe(400);
-  const missing = await fetch(
-    new Request("http://x/api/agents/missing/runs", {
+  const unauthorized = await fetch(
+    new Request("http://x/api/agents/helper/runs", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: "do it" }),
+      body: JSON.stringify({ message: "do it", userId: "user-1" }),
+    }),
+  );
+  expect(unauthorized.status).toBe(401);
+  const missing = await fetch(
+    adminRequest("http://x/api/agents/missing/runs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "do it", userId: "user-1" }),
     }),
   );
   expect(missing.status).toBe(404);
@@ -463,7 +539,12 @@ function slackHandler() {
   const db = createDb(":memory:");
   const vault = makeVault("test-key");
   const { mgr, calls } = fakeManager();
-  createAgent(db, { id: "coder", name: "Coder", model: "m", systemPrompt: "x" });
+  createAgent(db, {
+    id: "coder",
+    name: "Coder",
+    harness: { id: "claude", config: { model: "claude-sonnet-4-5" } },
+    systemPrompt: "x",
+  });
   createSlackConnection(db, {
     id: "conn-1",
     name: "Acme",

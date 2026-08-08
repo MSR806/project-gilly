@@ -20,6 +20,7 @@ import {
   getAgent,
   getCredential,
   getGatewayToken,
+  getHarness,
   getLegacyAgentConnectors,
   getOrCreateSession,
   getRun,
@@ -28,14 +29,18 @@ import {
   hasActiveRun,
   listAgents,
   listGrants,
+  listHarnesses,
   listRunSteps,
   listRuns,
   listSessions,
   listSlackConnections,
   migrateLegacyAgentTools,
   setCredential,
+  setHarnessSession,
   setSlackConnectionStatus,
+  syncAgent,
   updateAgent,
+  updateHarness,
   updateSlackConnection,
   upsertUserBySlackId,
 } from "./repo.ts";
@@ -43,10 +48,11 @@ import { agents, gatewayTokens } from "./schema.ts";
 
 const freshDb = () => createDb(":memory:");
 const seed = { agentId: "a", source: "slack", sourceKey: "C1:1.0" };
+const claudeHarness = { id: "claude", config: { model: "claude-sonnet-4-5" } } as const;
 const agentCfg: AgentConfig = {
   id: "coder",
   name: "Coder",
-  model: "claude-sonnet-4-5",
+  harness: claudeHarness,
   systemPrompt: "Write code.",
   tools: ["Read", "Bash"],
   skills: ["our-repos"],
@@ -60,7 +66,12 @@ test("agent round-trips through the DB with tools/skills arrays intact", () => {
 
 test("chat-only agent (no tools/skills) round-trips without the optional fields", () => {
   const db = freshDb();
-  const chat: AgentConfig = { id: "echo", name: "Echo", model: "m", systemPrompt: "Hi." };
+  const chat: AgentConfig = {
+    id: "echo",
+    name: "Echo",
+    harness: claudeHarness,
+    systemPrompt: "Hi.",
+  };
   createAgent(db, chat);
   expect(getAgent(db, "echo")).toEqual(chat);
 });
@@ -73,8 +84,8 @@ test("createAgent rejects a duplicate id", () => {
 
 test("listAgents returns agents oldest-first", () => {
   const db = freshDb();
-  createAgent(db, { id: "a", name: "A", model: "m", systemPrompt: "x" });
-  createAgent(db, { id: "b", name: "B", model: "m", systemPrompt: "x" });
+  createAgent(db, { id: "a", name: "A", harness: claudeHarness, systemPrompt: "x" });
+  createAgent(db, { id: "b", name: "B", harness: claudeHarness, systemPrompt: "x" });
   expect(listAgents(db).map((a) => a.id)).toEqual(["a", "b"]);
 });
 
@@ -90,11 +101,73 @@ test("updateAgent replaces config; deleteAgent removes it", () => {
   expect(getAgent(db, "coder")).toBeUndefined();
 });
 
+test("harness registry is seeded, editable, and validates agent selections", () => {
+  const db = freshDb();
+  expect(listHarnesses(db).map(({ id }) => id)).toEqual(["claude", "codex"]);
+  const claude = getHarness(db, "claude");
+  expect(claude?.enabled).toBe(true);
+  updateHarness(db, "claude", { ...(claude as NonNullable<typeof claude>), enabled: false });
+  expect(getHarness(db, "claude")?.enabled).toBe(false);
+  expect(() => createAgent(db, agentCfg)).toThrow('Harness "claude" is disabled');
+  expect(() =>
+    createAgent(db, {
+      ...agentCfg,
+      id: "unknown",
+      harness: { id: "missing", config: { model: "m" } },
+    }),
+  ).toThrow("Unknown harness: missing");
+});
+
+test("agent update preserves explicitly supplied harness settings", () => {
+  const db = freshDb();
+  const fast: AgentConfig = {
+    ...agentCfg,
+    harness: { id: "codex", config: { model: "gpt-5.4", serviceTier: "fast" } },
+  };
+  createAgent(db, fast);
+  expect(updateAgent(db, fast.id, { ...fast, name: "Fast" }).harness.config.serviceTier).toBe(
+    "fast",
+  );
+  const changed = updateAgent(db, fast.id, {
+    ...fast,
+    name: "Fast",
+    harness: { id: "codex", config: { model: "gpt-5.2", serviceTier: "fast" } },
+  });
+  expect(changed.harness).toEqual({
+    id: "codex",
+    config: { model: "gpt-5.2", serviceTier: "fast" },
+  });
+});
+
+test("syncAgent bypasses live registry validation while preserving gateway policy", () => {
+  const db = freshDb();
+  const claude = getHarness(db, "claude");
+  updateHarness(db, "claude", { ...(claude as NonNullable<typeof claude>), enabled: false });
+  syncAgent(db, agentCfg, { legacyConnectors: ["echo"] });
+  expect(getAgent(db, agentCfg.id)).toEqual(agentCfg);
+  expect(getLegacyAgentConnectors(db, agentCfg.id)).toEqual(["echo"]);
+});
+
 test("getOrCreateSession is idempotent on sourceKey", () => {
   const db = freshDb();
   const s1 = getOrCreateSession(db, seed);
   const s2 = getOrCreateSession(db, seed);
   expect(s2.id).toBe(s1.id);
+});
+
+test("harness sessions persist raw ids with their owner and clear both on null", () => {
+  const db = freshDb();
+  const session = getOrCreateSession(db, seed);
+  setHarnessSession(db, session.id, "codex", "thread-1");
+  expect(getSessionBySourceKey(db, seed.sourceKey)).toMatchObject({
+    harnessId: "codex",
+    harnessSessionId: "thread-1",
+  });
+  setHarnessSession(db, session.id, "codex", null);
+  expect(getSessionBySourceKey(db, seed.sourceKey)).toMatchObject({
+    harnessId: null,
+    harnessSessionId: null,
+  });
 });
 
 test("session history is filtered by agent/source and returns its runs in order", () => {
@@ -245,7 +318,8 @@ test("legacy connectors migrate only from the custom catalog and edits retire th
     .values({
       id: "legacy",
       name: "Legacy",
-      model: "sonnet",
+      model: claudeHarness.config.model,
+      harnessId: claudeHarness.id,
       systemPrompt: "Old config",
       gatewayTools: null,
       connectors: JSON.stringify(["echo"]),
@@ -268,7 +342,7 @@ test("legacy connectors migrate only from the custom catalog and edits retire th
   updateAgent(db, "legacy", {
     id: "legacy",
     name: "Legacy",
-    model: "sonnet",
+    harness: claudeHarness,
     systemPrompt: "Edited config",
     gatewayTools: ["echo.ping"],
   });

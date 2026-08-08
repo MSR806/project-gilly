@@ -47,10 +47,10 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.gateway
     env_file:
-      - ../apps/control-plane/.env    # GILLY_VAULT_KEY and GILLY_ADMIN_TOKEN
+      - ../apps/gateway/.env          # GILLY_VAULT_KEY and GILLY_ADMIN_TOKEN
     environment:
       DATABASE_PATH: /data/gilly.db
-      GILLY_GATEWAY_URL: http://gateway:4100
+      GILLY_GATEWAY_URL: http://localhost:4100
       GILLY_WEB_URL: http://localhost:3000
       GILLY_CONTROL_PLANE_URL: http://control-plane:4000
     volumes:

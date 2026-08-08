@@ -1,4 +1,4 @@
-import { AgentConfig, ModelProvider, WorkspaceRef } from "@gilly/core";
+import { AgentConfig, WorkspaceRef } from "@gilly/core";
 import { z } from "zod";
 
 /**
@@ -15,8 +15,6 @@ export type SkillBundle = z.infer<typeof SkillBundle>;
 
 /** Control plane → harness: everything needed to drive one loop. The stable handoff. */
 export const InvocationRequest = z.object({
-  /** Harness implementation to run. Omitted requests default to Anthropic at the HTTP boundary. */
-  harnessType: ModelProvider.optional(),
   agent: AgentConfig,
   /** The task for this invocation (Slack message, cron payload, …). */
   userMessage: z.string(),

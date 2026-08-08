@@ -39,9 +39,10 @@ without rebuilding infrastructure each time.
 **Active development.** APIs, package boundaries, and docs may change while the
 MVP is being built.
 
-Agents are triggered from Slack or web and routed by their selected model to the
-Claude or OpenAI Codex harness. Agent runs and provider session references are
-persisted in SQLite so follow-ups resume the correct provider session.
+Agents are triggered from Slack or web and routed by their explicit `harness.id` to the Claude or
+Codex loop. The data-backed harness registry owns enabled state and offered models. Agent runs and
+harness-owned session references are persisted in SQLite so follow-ups resume only on the matching
+harness.
 
 ## What Gilly Provides
 
@@ -50,11 +51,11 @@ persisted in SQLite so follow-ups resume the correct provider session.
 | Agent config | SQLite records managed through the UI/API, with JSON seeds in `config/agents/` |
 | Channels | Slack Socket Mode plus a web channel surface in progress |
 | Control plane | Session/run engine, follow-up queue, channel translation |
-| Harness | Claude Agent SDK and OpenAI Codex SDK behind one stable HTTP contract |
+| Harness | Universal registry-backed endpoint for Claude Agent SDK and OpenAI Codex SDK |
 | Runtime | Local HTTP runtime provider with an AgentCore-compatible contract |
-| Storage | SQLite operational state and agent config via Drizzle |
-| Tooling | Provider-neutral gateway for custom tools and Composio toolkits |
-| Web | Next.js UI for managing agents, skills, tools, users, and chats |
+| Storage | SQLite agents, harness registry, and operational state via Drizzle |
+| Tooling | Canonical provider-neutral gateway for custom tools and Composio toolkits |
+| Web | Next.js UI for managing agents, skills, channels, tools, users, and chats |
 
 ## Architecture
 
@@ -66,7 +67,7 @@ apps/control-plane
    |  resolves agent config, sessions, runs
    v
 packages/runtime
-   |  adds harnessType and calls one URL
+   |  posts the explicit agent config to one HARNESS_URL
    v
 apps/harness
    +--> harness-claude --> Claude Agent SDK
@@ -78,8 +79,9 @@ Key boundaries:
 - `packages/core` - shared domain model and Zod schemas.
 - `packages/harness-protocol` - control-plane to harness request/response contract.
 - `packages/runtime` - runtime provider seam; local now, cloud provider later.
-- `packages/db` - operational records for sessions, runs, and follow-up queues.
-- `apps/gateway` and `packages/gateway-*` - connector gateway pieces.
+- `packages/db` - agents, the universal harness registry, sessions, runs, and follow-up queues.
+- `apps/gateway` and `packages/gateway-*` - one canonical tool catalog and auth boundary for custom
+  connectors and Composio-managed toolkits.
 
 ## Vision
 

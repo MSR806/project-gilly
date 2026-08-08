@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentHarness } from "./harness.ts";
 
 /**
  * A configured AI worker: prompt + model, plus building blocks attached *by reference* —
@@ -9,8 +10,8 @@ export const AgentConfig = z.object({
   id: z.string().min(1),
   /** Human-readable name. */
   name: z.string().min(1),
-  /** Model that drives the loop, e.g. "claude-sonnet-4-5". */
-  model: z.string().min(1),
+  /** Explicit harness selection and that harness's configuration. */
+  harness: AgentHarness,
   /** Role, scope, and style — not the task (the task arrives at invocation time). */
   systemPrompt: z.string().min(1),
   /**

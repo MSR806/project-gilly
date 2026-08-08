@@ -1,64 +1,58 @@
 import { expect, test } from "bun:test";
 import {
   gatewayToolGroups,
-  modelOptionGroups,
+  harnessSelection,
   parseAgentValues,
   parseGatewayTools,
-  parseModelCatalog,
+  parseHarnessRegistry,
 } from "./agent-form-helpers";
 
-test("parseModelCatalog validates catalog entries", () => {
-  expect(parseModelCatalog([{ id: "gpt", label: "GPT", provider: "openai" }])).toEqual([
-    { id: "gpt", label: "GPT", provider: "openai" },
-  ]);
-  expect(() => parseModelCatalog([{ id: "gpt", provider: "openai" }])).toThrow(
-    "Invalid model catalog",
+const registry = [
+  {
+    id: "claude",
+    name: "Claude",
+    image: "/harnesses/claude.svg",
+    enabled: true,
+    models: [{ id: "sonnet", name: "Sonnet" }],
+  },
+  {
+    id: "codex",
+    name: "Codex",
+    image: "/harnesses/codex.svg",
+    enabled: false,
+    models: [{ id: "gpt", name: "GPT" }],
+  },
+];
+
+test("parseHarnessRegistry validates registry entries", () => {
+  expect(parseHarnessRegistry(registry)).toEqual(registry);
+  expect(() => parseHarnessRegistry([{ id: "claude" }])).toThrow("Invalid harness registry");
+});
+
+test("harnessSelection exposes only enabled harnesses and requires an offered model", () => {
+  expect(harnessSelection(registry, { id: "claude", config: { model: "sonnet" } })).toEqual({
+    enabled: [registry[0]],
+    selected: registry[0],
+    modelValid: true,
+    valid: true,
+  });
+  expect(harnessSelection(registry, { id: "codex", config: { model: "gpt" } }).valid).toBe(false);
+  expect(harnessSelection(registry, { id: "claude", config: { model: "legacy" } }).valid).toBe(
+    false,
   );
 });
 
-test("modelOptionGroups uses provider order and preserves an unlisted current model", () => {
-  const result = modelOptionGroups(
-    [
-      { id: "claude", label: "Claude", provider: "anthropic" },
-      { id: "gpt", label: "GPT", provider: "openai" },
-    ],
-    "retired-model",
-  );
-
-  expect(result).toEqual({
-    currentIsCatalogued: false,
-    groups: [
-      {
-        label: "Current / legacy",
-        options: [{ value: "retired-model", label: "retired-model (current model)" }],
-      },
-      { label: "Anthropic", options: [{ value: "claude", label: "Claude" }] },
-      { label: "OpenAI", options: [{ value: "gpt", label: "GPT" }] },
-    ],
-  });
-});
-
-test("modelOptionGroups does not duplicate a catalogued current model", () => {
-  expect(
-    modelOptionGroups([{ id: "claude", label: "Claude", provider: "anthropic" }], "claude"),
-  ).toEqual({
-    currentIsCatalogued: true,
-    groups: [{ label: "Anthropic", options: [{ value: "claude", label: "Claude" }] }],
-  });
-});
-
-test("parseAgentValues returns the server agent and rejects malformed responses", () => {
+test("parseAgentValues accepts nested harness config and rejects flat model responses", () => {
   const agent = {
     id: "helper",
     name: "Server name",
-    model: "claude",
+    harness: { id: "claude", config: { model: "sonnet" } },
     systemPrompt: "Help.",
     skills: ["research"],
     gatewayTools: ["GITHUB_CREATE_ISSUE"],
   };
-
   expect(parseAgentValues(agent)).toEqual(agent);
-  expect(() => parseAgentValues({ ...agent, model: undefined })).toThrow(
+  expect(() => parseAgentValues({ ...agent, harness: undefined, model: "sonnet" })).toThrow(
     "Server returned an invalid agent",
   );
 });

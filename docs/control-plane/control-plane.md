@@ -24,7 +24,7 @@ Everything in the control plane is authored configuration that an agent run draw
 
 **What an agent is made of** — assembled by *referencing* these; nothing is embedded, so a skill is authored once and reused everywhere:
 
-- [`agent-registry.md`](agent-registry.md) — the catalog of agents (system prompt, model, attached building blocks)
+- [`agent-registry.md`](agent-registry.md) — agents with explicit harness/model selection and attached building blocks
 - [`skill-registry.md`](skill-registry.md) — reusable skills an agent can attach
 
 Any agent can act as a **subagent** — when one agent delegates to another, the delegate is just an agent from the same registry. There is no separate subagent registry.

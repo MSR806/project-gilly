@@ -1,23 +1,40 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { AgentConfig } from "@gilly/core";
-import { createAgent, type Db, getAgent, updateAgent } from "@gilly/db";
+import { AgentConfig, isDeferredOpenModel, normalizeLegacyHarness } from "@gilly/core";
+import { type Db, getAgent, getHarness, syncAgent, updateHarness } from "@gilly/db";
 import type { SkillBundle } from "@gilly/harness-protocol";
 import { Glob } from "bun";
 import { z } from "zod";
 
-const LegacyAgentFileConfig = AgentConfig.extend({ connectors: z.array(z.string()).optional() });
-type LegacyAgentFileConfig = z.infer<typeof LegacyAgentFileConfig>;
+const AgentFileConfig = AgentConfig.extend({ connectors: z.array(z.string()).optional() });
+type AgentFileConfig = z.infer<typeof AgentFileConfig>;
+const LegacyAgentFileConfig = AgentFileConfig.omit({ harness: true }).extend({
+  model: AgentConfig.shape.harness.shape.config.shape.model,
+});
 
 /** Load every `*.json` agent config in `dir`, keyed by id. Throws on invalid or empty. */
-export function loadAgents(dir: string): Map<string, LegacyAgentFileConfig> {
+export function loadAgents(
+  dir: string,
+  onLegacy: (agent: AgentConfig) => void = () => {},
+): Map<string, AgentFileConfig> {
   const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
-  const agents = new Map<string, LegacyAgentFileConfig>();
+  const agents = new Map<string, AgentFileConfig>();
   for (const file of files) {
     const path = join(dir, file);
-    let agent: LegacyAgentFileConfig;
+    let agent: AgentFileConfig;
     try {
-      agent = LegacyAgentFileConfig.parse(JSON.parse(readFileSync(path, "utf8")));
+      const value = JSON.parse(readFileSync(path, "utf8"));
+      const current = AgentFileConfig.safeParse(value);
+      if (current.success) {
+        agent = current.data;
+      } else {
+        const legacy = LegacyAgentFileConfig.safeParse(value);
+        if (!legacy.success) throw current.error;
+        const { model, ...fields } = legacy.data;
+        agent = AgentFileConfig.parse({ ...fields, harness: normalizeLegacyHarness(model) });
+        console.warn(`[config] legacy agent model normalized in memory: ${path}`);
+        onLegacy(agent);
+      }
     } catch (e) {
       throw new Error(`Invalid agent config ${path}: ${e}`);
     }
@@ -60,12 +77,25 @@ export function loadSkills(dir: string): Map<string, SkillBundle> {
  * need no seed; the LocalSkillStore loads them from disk each boot.
  */
 export function syncAgents(db: Db, agentsDir: string): void {
-  for (const loaded of loadAgents(agentsDir).values()) {
+  const legacy = new Set<string>();
+  for (const loaded of loadAgents(agentsDir, (item) => legacy.add(item.id)).values()) {
     const { connectors, ...agent } = loaded;
-    const options = {
+    if (legacy.has(agent.id) && !getAgent(db, agent.id)) preserveLegacyFileModel(db, agent);
+    syncAgent(db, agent, {
       legacyConnectors: agent.gatewayTools === undefined ? connectors : undefined,
-    };
-    if (getAgent(db, agent.id)) updateAgent(db, agent.id, agent, options);
-    else createAgent(db, agent, options);
+    });
   }
+}
+
+function preserveLegacyFileModel(db: Db, agent: AgentConfig): void {
+  if (isDeferredOpenModel(agent.harness.config.model)) return;
+  const harness = getHarness(db, agent.harness.id);
+  if (!harness || harness.models.some((model) => model.id === agent.harness.config.model)) return;
+  updateHarness(db, harness.id, {
+    ...harness,
+    models: [
+      ...harness.models,
+      { id: agent.harness.config.model, name: agent.harness.config.model },
+    ],
+  });
 }

@@ -58,7 +58,12 @@ async function* stream(...msgs: SDKMessage[]) {
 }
 
 const req: InvocationRequest = {
-  agent: { id: "a", name: "A", model: "claude-sonnet-4-5", systemPrompt: "do x" },
+  agent: {
+    id: "a",
+    name: "A",
+    harness: { id: "claude", config: { model: "claude-sonnet-4-5" } },
+    systemPrompt: "do x",
+  },
   userMessage: "hi",
 };
 
@@ -459,7 +464,7 @@ test.skipIf(!process.env.ANTHROPIC_API_KEY)(
       agent: {
         id: "integration-test",
         name: "Integration Test Agent",
-        model: "claude-sonnet-4-5",
+        harness: { id: "claude", config: { model: "claude-sonnet-4-5" } },
         systemPrompt: "You are a test agent. Respond briefly.",
         tools: ["Read"], // Give it a tool so it might do work
       },
