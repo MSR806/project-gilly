@@ -19,13 +19,13 @@ import MultiSelect, { type Group } from "../components/MultiSelect";
 import {
   type AgentValues,
   type GatewayTool,
-  gatewayToolGroups,
   type ModelInfo,
   modelOptionGroups,
   parseAgentValues,
   parseGatewayTools,
   parseModelCatalog,
 } from "./agent-form-helpers";
+import GatewayToolkitPicker from "./GatewayToolkitPicker";
 
 export type { AgentValues } from "./agent-form-helpers";
 
@@ -152,8 +152,6 @@ export default function AgentForm({
   const selectedModelLabel = modelOptions.groups
     .flatMap((group) => group.options)
     .find((option) => option.value === values.model)?.label;
-  const concreteToolGroups = gatewayToolGroups(allGatewayTools, values.gatewayTools ?? []);
-
   return (
     <form className="flex max-w-2xl flex-col gap-5" onSubmit={submit}>
       <div className="grid gap-2">
@@ -254,7 +252,7 @@ export default function AgentForm({
         <Label>Gateway tools</Label>
         {gatewayToolError ? (
           <p className="text-xs text-destructive">Failed to load gateway tools.</p>
-        ) : concreteToolGroups.length === 0 ? (
+        ) : allGatewayTools.length === 0 && !values.gatewayTools?.length ? (
           <p className="text-xs text-muted-foreground">
             No tools available — configure one on the{" "}
             <a href="/connectors" className="underline">
@@ -263,11 +261,10 @@ export default function AgentForm({
             page first.
           </p>
         ) : (
-          <MultiSelect
-            groups={concreteToolGroups}
+          <GatewayToolkitPicker
+            tools={allGatewayTools}
             selected={values.gatewayTools ?? []}
             onChange={(gatewayTools) => set("gatewayTools", gatewayTools)}
-            placeholder="No tools — agent can't call external tools"
           />
         )}
         <p className="text-xs text-muted-foreground">

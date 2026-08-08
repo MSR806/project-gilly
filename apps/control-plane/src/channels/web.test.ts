@@ -27,12 +27,6 @@ const handler = () =>
     adminToken: "admin-secret",
   });
 
-const adminRequest = (url: string, init: RequestInit = {}) => {
-  const headers = new Headers(init.headers);
-  headers.set("x-admin-token", "admin-secret");
-  return new Request(url, { ...init, headers });
-};
-
 const realFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = realFetch;
@@ -56,7 +50,7 @@ test("PUT credentials proxy injects x-admin-token and forwards the body", async 
   }) as unknown as typeof fetch;
 
   const res = await handler()(
-    adminRequest("http://x/api/connectors/github/credentials", {
+    new Request("http://x/api/connectors/github/credentials", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ key: "github_pat", value: "SECRET" }),
@@ -77,7 +71,7 @@ test("connect proxy relays the gateway's 302 Location to the browser", async () 
       headers: { location: "https://auth.atlassian.com/authorize" },
     })) as unknown as typeof fetch;
 
-  const res = await handler()(adminRequest("http://x/api/connectors/jira/connect"));
+  const res = await handler()(new Request("http://x/api/connectors/jira/connect"));
   expect(res.status).toBe(302);
   expect(res.headers.get("location")).toBe("https://auth.atlassian.com/authorize");
 });
@@ -89,7 +83,7 @@ test("connect proxy bounces back to the connectors page when already connected (
       headers: { "content-type": "application/json" },
     })) as unknown as typeof fetch;
 
-  const res = await handler()(adminRequest("http://x/api/connectors/jira/connect"));
+  const res = await handler()(new Request("http://x/api/connectors/jira/connect"));
   expect(res.status).toBe(302);
   expect(res.headers.get("location")).toBe("/connectors?connected=jira");
 });
@@ -111,7 +105,7 @@ test("GET /api/tools proxies the unified gateway catalog", async () => {
     });
   }) as unknown as typeof fetch;
 
-  const res = await handler()(adminRequest("http://x/api/tools"));
+  const res = await handler()(new Request("http://x/api/tools"));
   expect(seen?.headers.get("x-admin-token")).toBe("admin-secret");
   expect(await res.json()).toEqual({
     tools: [
@@ -126,17 +120,12 @@ test("GET /api/tools proxies the unified gateway catalog", async () => {
   });
 });
 
-test("GET /api/tools requires admin authentication", async () => {
-  const res = await handler()(new Request("http://x/api/tools"));
-  expect(res.status).toBe(401);
-});
-
 test("GET /api/tools reports an unavailable gateway", async () => {
   globalThis.fetch = (async () => {
     throw new Error("offline");
   }) as unknown as typeof fetch;
 
-  const res = await handler()(adminRequest("http://x/api/tools"));
+  const res = await handler()(new Request("http://x/api/tools"));
   expect(res.status).toBe(502);
   expect(await res.json()).toEqual({ error: "gateway unavailable" });
 });
@@ -174,36 +163,15 @@ test("Composio toolkit proxies preserve query, inject admin auth, and relay redi
     return Response.json({ configured: true, items: [], nextCursor: "next" });
   }) as unknown as typeof fetch;
 
-  const list = await handler()(
-    adminRequest("http://x/api/composio/toolkits?query=mail&cursor=one"),
-  );
+  const list = await handler()(new Request("http://x/api/composio/toolkits?query=mail&cursor=one"));
   expect(await list.json()).toEqual({ configured: true, items: [], nextCursor: "next" });
   expect(seen[0]?.url).toBe("http://gw/admin/composio/toolkits?query=mail&cursor=one");
   expect(seen[0]?.headers.get("x-admin-token")).toBe("admin-secret");
 
-  const connect = await handler()(adminRequest("http://x/api/composio/toolkits/gmail/connect"));
+  const connect = await handler()(new Request("http://x/api/composio/toolkits/gmail/connect"));
   expect(connect.status).toBe(302);
   expect(connect.headers.get("location")).toBe("https://connect.composio.dev");
   expect(seen[1]?.headers.get("x-admin-token")).toBe("admin-secret");
-});
-
-test("connector and Composio administration rejects unauthenticated callers", async () => {
-  let calls = 0;
-  globalThis.fetch = (async () => {
-    calls += 1;
-    return Response.json({ ok: true });
-  }) as unknown as typeof fetch;
-
-  const requests = [
-    new Request("http://x/api/composio/toolkits"),
-    new Request("http://x/api/composio/toolkits/gmail/connect"),
-    new Request("http://x/api/connectors/jira/connect"),
-    new Request("http://x/api/connectors/composio/credentials", { method: "PUT" }),
-  ];
-  for (const request of requests) {
-    expect((await handler()(request)).status).toBe(401);
-  }
-  expect(calls).toBe(0);
 });
 
 test("POST /api/skills persists a skill with supporting files; GET returns them", async () => {

@@ -17,9 +17,12 @@ export type ModelOptionGroup = {
   options: { value: string; label: string }[];
 };
 
-export type GatewayToolGroup = {
-  label: string;
-  options: { value: string; description?: string }[];
+export type GatewayToolkit = {
+  id: string;
+  source: GatewayTool["source"];
+  toolkit: string;
+  connected: boolean;
+  tools: GatewayTool[];
 };
 
 const PROVIDERS = [
@@ -81,31 +84,51 @@ export function parseGatewayTools(value: unknown): GatewayTool[] {
   });
 }
 
-/** Group concrete tools by toolkit and keep selected tools missing from the current catalog. */
-export function gatewayToolGroups(
-  tools: readonly GatewayTool[],
-  selected: readonly string[],
-): GatewayToolGroup[] {
-  const groups = new Map<string, GatewayToolGroup["options"]>();
-
+/** Group exact gateway tools by provider and toolkit for toolkit-level selection. */
+export function gatewayToolkits(tools: readonly GatewayTool[]): GatewayToolkit[] {
+  const groups = new Map<string, GatewayToolkit>();
   for (const tool of tools) {
-    const options = groups.get(tool.toolkit) ?? [];
-    options.push({
-      value: tool.name,
-      description: tool.connected ? tool.description : `${tool.description} (not connected)`,
-    });
-    groups.set(tool.toolkit, options);
+    const id = `${tool.source}:${tool.toolkit}`;
+    const group = groups.get(id);
+    if (group) {
+      group.tools.push(tool);
+      group.connected = group.connected && tool.connected;
+    } else {
+      groups.set(id, {
+        id,
+        source: tool.source,
+        toolkit: tool.toolkit,
+        connected: tool.connected,
+        tools: [tool],
+      });
+    }
   }
 
-  const available = new Set(tools.map((tool) => tool.name));
-  const unavailable = [...new Set(selected)]
-    .filter((name) => !available.has(name))
-    .map((value) => ({ value, description: "Unavailable in the current catalog" }));
+  for (const group of groups.values()) group.tools.sort((a, b) => a.name.localeCompare(b.name));
+  return [...groups.values()].sort((a, b) => a.toolkit.localeCompare(b.toolkit));
+}
 
-  return [
-    ...[...groups.entries()].map(([label, options]) => ({ label, options })),
-    ...(unavailable.length ? [{ label: "Unavailable", options: unavailable }] : []),
-  ];
+/** Select all current tools in a toolkit, or clear them when already fully selected. */
+export function toggleGatewayToolkit(
+  selected: readonly string[],
+  toolkitTools: readonly string[],
+): string[] {
+  const next = new Set(selected);
+  const allSelected = toolkitTools.length > 0 && toolkitTools.every((tool) => next.has(tool));
+  for (const tool of toolkitTools) {
+    if (allSelected) next.delete(tool);
+    else next.add(tool);
+  }
+  return [...next];
+}
+
+/** Collapse exact gateway tool names to catalog toolkits, with a prefix fallback for unavailable tools. */
+export function gatewayToolkitNames(
+  tools: readonly string[] = [],
+  catalog: readonly GatewayTool[] = [],
+): string[] {
+  const toolkitByTool = new Map(catalog.map((tool) => [tool.name, tool.toolkit]));
+  return [...new Set(tools.map((tool) => toolkitByTool.get(tool) ?? (tool.split(".")[0] || tool)))];
 }
 
 /** Validate the successful create/update response before reflecting server-owned values in the UI. */

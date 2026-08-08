@@ -435,6 +435,18 @@ export function setCredential(db: Db, provider: string, key: string, value: stri
     .run();
 }
 
+/** Atomically upsert multiple credential values for one provider. */
+export function setCredentials(db: Db, provider: string, values: Record<string, string>): void {
+  db.transaction((tx) => {
+    for (const [key, value] of Object.entries(values)) {
+      tx.insert(credentials)
+        .values({ provider, key, value })
+        .onConflictDoUpdate({ target: [credentials.provider, credentials.key], set: { value } })
+        .run();
+    }
+  });
+}
+
 /** Delete a single credential row on (provider, key). No-op if absent. */
 export function deleteCredential(db: Db, provider: string, key: string): void {
   db.delete(credentials)

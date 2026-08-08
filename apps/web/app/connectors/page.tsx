@@ -1,9 +1,8 @@
 "use client";
 
-import { Cable, Search } from "lucide-react";
+import { Cable, Search, X } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,8 +26,10 @@ type Connector = {
 };
 
 export default function ConnectorsPage() {
+  const [activeTab, setActiveTab] = useState<"custom" | "composio">("custom");
   const [connectors, setConnectors] = useState<Connector[] | null>(null);
   const [customError, setCustomError] = useState<string | null>(null);
+  const [customQuery, setCustomQuery] = useState("");
   const [toolkits, setToolkits] = useState<ComposioToolkit[]>([]);
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [toolkitError, setToolkitError] = useState<string | null>(null);
@@ -65,7 +66,6 @@ export default function ConnectorsPage() {
       if (!cursor) setActiveQuery(search);
     } catch {
       if (request !== toolkitRequest.current) return;
-      setConfigured((current) => current ?? false);
       setToolkitError("Failed to load Composio toolkits");
     } finally {
       if (request === toolkitRequest.current) setToolkitLoading(false);
@@ -75,7 +75,9 @@ export default function ConnectorsPage() {
   useEffect(() => {
     loadCustom();
     void loadToolkits("");
+    const searchParams = new URLSearchParams(window.location.search);
     setFeedback(parseConnectionFeedback(window.location.search));
+    if (searchParams.get("tab") === "composio") setActiveTab("composio");
   }, [loadCustom, loadToolkits]);
 
   function search(event: React.FormEvent) {
@@ -84,12 +86,18 @@ export default function ConnectorsPage() {
     void loadToolkits(nextQuery);
   }
 
+  const filteredConnectors = connectors?.filter((connector) =>
+    `${connector.name} ${connector.kind} ${connector.auth}`
+      .toLowerCase()
+      .includes(customQuery.trim().toLowerCase()),
+  );
+
   return (
-    <div className="flex flex-col gap-10">
-      <div>
+    <div className="flex flex-col gap-6">
+      <div className="border-b pb-5">
         <h1 className="text-xl font-semibold tracking-tight">Tools</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Configure the concrete tools available to agents and user grants.
+          Browse and connect the integrations available to your agents.
         </p>
       </div>
 
@@ -106,153 +114,227 @@ export default function ConnectorsPage() {
         </p>
       ) : null}
 
-      <section aria-labelledby="custom-tools-heading" className="grid gap-4">
-        <div>
-          <h2 id="custom-tools-heading" className="text-lg font-semibold">
-            Custom tools
-          </h2>
-          <p className="text-sm text-muted-foreground">Tools hosted directly by your gateway.</p>
-        </div>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <nav aria-label="Tool source" className="inline-flex w-fit rounded-lg bg-muted p-1">
+            <ToolTab active={activeTab === "custom"} onClick={() => setActiveTab("custom")}>
+              Custom
+            </ToolTab>
+            <ToolTab active={activeTab === "composio"} onClick={() => setActiveTab("composio")}>
+              Composio
+            </ToolTab>
+          </nav>
 
-        {customError ? <p className="text-sm text-destructive">{customError}</p> : null}
-        {connectors === null ? (
-          <p className="py-4 text-sm text-muted-foreground">Loading custom tools…</p>
-        ) : connectors.length === 0 ? (
-          <p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
-            No custom tools configured.
-          </p>
-        ) : (
-          <ul className="grid grid-cols-1 gap-3">
-            {connectors.map((connector) => (
-              <ConnectorCard key={connector.name} connector={connector} onChange={loadCustom} />
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section aria-labelledby="composio-tools-heading" className="grid gap-4">
-        <div>
-          <h2 id="composio-tools-heading" className="text-lg font-semibold">
-            Composio tools
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Connect a shared Composio project, then enable the upstream toolkits you need.
-          </p>
-        </div>
-
-        {configured === null ? (
-          <p className="py-4 text-sm text-muted-foreground">Loading Composio setup…</p>
-        ) : (
-          <div className="rounded-xl border bg-card p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="font-medium">Composio project API key</p>
-                <p className="text-xs text-muted-foreground">
-                  One shared project key is used for all agents.
-                </p>
-              </div>
-              <Badge variant={configured ? "secondary" : "outline"}>
-                {configured ? "Configured" : "Setup required"}
-              </Badge>
-            </div>
-            <ApiKeyField
-              name="composio"
-              credKey="api_key"
-              connected={configured}
-              onSaved={() => loadToolkits(activeQuery)}
+          {activeTab === "custom" ? (
+            <SearchField
+              id="custom-tool-search"
+              value={customQuery}
+              placeholder="Search custom tools"
+              onChange={setCustomQuery}
             />
-          </div>
-        )}
-
-        <form className="flex flex-col gap-2 sm:flex-row" onSubmit={search}>
-          <Label htmlFor="toolkit-search" className="sr-only">
-            Search Composio toolkits
-          </Label>
-          <Input
-            id="toolkit-search"
-            type="search"
-            value={query}
-            placeholder="Search toolkits"
-            disabled={!configured}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <Button type="submit" variant="outline" disabled={!configured || toolkitLoading}>
-            <Search /> Search
-          </Button>
-        </form>
-
-        {toolkitError ? <p className="text-sm text-destructive">{toolkitError}</p> : null}
-        {!configured && configured !== null ? (
-          <p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
-            Add the Composio project API key to browse and connect toolkits.
-          </p>
-        ) : toolkitLoading && toolkits.length === 0 ? (
-          <p className="py-4 text-sm text-muted-foreground">Loading toolkits…</p>
-        ) : toolkits.length === 0 ? (
-          <p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
-            No toolkits found.
-          </p>
-        ) : (
-          <>
-            <ul className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2">
-              {toolkits.map((toolkit) => (
-                <ToolkitCard key={toolkit.slug} toolkit={toolkit} />
-              ))}
-            </ul>
-            {nextCursor ? (
-              <Button
-                className="justify-self-center"
-                variant="outline"
-                disabled={toolkitLoading}
-                onClick={() => loadToolkits(activeQuery, nextCursor)}
+          ) : (
+            <form onSubmit={search} className="w-full sm:max-w-xs">
+              <SearchField
+                id="toolkit-search"
+                value={query}
+                placeholder="Search Composio tools"
+                disabled={configured === false}
+                onChange={setQuery}
+              />
+              <button
+                type="submit"
+                className="sr-only"
+                disabled={configured === false || toolkitLoading}
               >
-                {toolkitLoading ? "Loading…" : "Load more"}
-              </Button>
+                Search
+              </button>
+            </form>
+          )}
+        </div>
+
+        {activeTab === "custom" ? (
+          <section aria-label="Custom tools">
+            {customError ? (
+              <CatalogError message={customError} onRetry={loadCustom} />
+            ) : connectors === null ? (
+              <CatalogMessage>Loading custom tools…</CatalogMessage>
+            ) : filteredConnectors?.length === 0 ? (
+              <CatalogMessage>
+                {customQuery ? "No custom tools match your search." : "No custom tools configured."}
+              </CatalogMessage>
+            ) : (
+              <ul className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {filteredConnectors?.map((connector) => (
+                  <ConnectorCard key={connector.name} connector={connector} onChange={loadCustom} />
+                ))}
+              </ul>
+            )}
+          </section>
+        ) : (
+          <section aria-label="Composio tools" className="grid gap-4">
+            {toolkitError ? (
+              <CatalogError message={toolkitError} onRetry={() => loadToolkits(activeQuery)} />
             ) : null}
-          </>
+            {!configured && configured !== null ? (
+              <CatalogMessage>
+                Composio is not configured. Set the optional <code>COMPOSIO_API_KEY</code> in the
+                gateway environment to browse its tools.
+              </CatalogMessage>
+            ) : toolkitLoading && toolkits.length === 0 ? (
+              <CatalogMessage>Loading Composio tools…</CatalogMessage>
+            ) : toolkits.length === 0 ? (
+              toolkitError ? null : (
+                <CatalogMessage>No Composio tools found.</CatalogMessage>
+              )
+            ) : (
+              <>
+                <ul className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {toolkits.map((toolkit) => (
+                    <ToolkitCard key={toolkit.slug} toolkit={toolkit} />
+                  ))}
+                </ul>
+                {nextCursor ? (
+                  <Button
+                    className="justify-self-center rounded-xl"
+                    variant="outline"
+                    disabled={toolkitLoading}
+                    onClick={() => loadToolkits(activeQuery, nextCursor)}
+                  >
+                    {toolkitLoading ? "Loading…" : "Load more"}
+                  </Button>
+                ) : null}
+              </>
+            )}
+          </section>
         )}
-      </section>
+      </div>
+    </div>
+  );
+}
+
+function ToolTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+        active
+          ? "bg-background text-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground"
+      }`}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SearchField({
+  id,
+  value,
+  placeholder,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  placeholder: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="relative w-full sm:max-w-xs">
+      <Label htmlFor={id} className="sr-only">
+        {placeholder}
+      </Label>
+      <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        id={id}
+        type="search"
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        className="h-9 rounded-xl pl-9"
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </div>
+  );
+}
+
+function CatalogMessage({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="rounded-xl border border-dashed bg-muted/20 px-4 py-10 text-center text-sm text-muted-foreground">
+      {children}
+    </p>
+  );
+}
+
+function CatalogError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-center justify-between gap-4 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3"
+    >
+      <p className="text-sm text-destructive">{message}</p>
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        Retry
+      </Button>
     </div>
   );
 }
 
 function ConnectorCard({ connector, onChange }: { connector: Connector; onChange: () => void }) {
-  const { name, auth, connected, requiredCreds } = connector;
+  const { name, auth, connected } = connector;
+  const toolCount = connector.toolCount ?? 0;
+  const [credentialModalOpen, setCredentialModalOpen] = useState(false);
   return (
-    <li className="rounded-xl border bg-card p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="flex min-w-0 flex-1 items-center gap-4">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background">
-            <Cable className="size-4 text-muted-foreground" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="font-medium">{name}</p>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-              <ConnectionStatus connected={connected} />
-              <span>auth: {auth}</span>
-              {connector.toolCount !== undefined ? <span>{connector.toolCount} tools</span> : null}
-            </div>
-          </div>
+    <li className="group flex min-h-40 min-w-0 flex-col rounded-2xl border bg-card p-4 transition-colors hover:border-foreground/20 hover:bg-muted/10">
+      <div className="flex min-w-0 items-start gap-3">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-300">
+          <Cable className="size-5" />
         </div>
-        {auth === "oauth" ? <OAuthConnect name={name} connected={connected} /> : null}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate font-medium capitalize">{name}</p>
+            {connected ? <ConnectionStatus connected /> : null}
+          </div>
+          <p className="mt-1 line-clamp-2 text-sm leading-5 text-muted-foreground">
+            {toolCount > 0 ? `${toolCount} ${toolCount === 1 ? "tool" : "tools"}` : "Custom tools"}
+            {` available through ${connector.kind === "mcp" ? "MCP" : "the Gilly gateway"}.`}
+          </p>
+        </div>
       </div>
 
-      {auth === "none" ? (
-        <p className="mt-3 text-xs text-muted-foreground">No setup needed.</p>
-      ) : null}
-
-      {auth === "api_key" ? (
-        <div className="mt-4 flex flex-col gap-3 border-t pt-4">
-          {requiredCreds.map((key) => (
-            <ApiKeyField
-              key={key}
-              name={name}
-              credKey={key}
-              connected={connected}
-              onSaved={onChange}
-            />
-          ))}
-        </div>
+      <div className="mt-auto flex min-w-0 items-end justify-between gap-3 pt-4">
+        <span className="text-xs capitalize text-muted-foreground">
+          {auth === "none" ? "No setup needed" : auth.replace("_", " ")}
+        </span>
+        {auth === "oauth" ? <OAuthConnect name={name} connected={connected} /> : null}
+        {auth === "api_key" ? (
+          <Button
+            className="rounded-xl"
+            variant="outline"
+            size="sm"
+            onClick={() => setCredentialModalOpen(true)}
+          >
+            {connected ? "Update" : "Connect"}
+          </Button>
+        ) : null}
+      </div>
+      {credentialModalOpen ? (
+        <CredentialModal
+          connector={connector}
+          onClose={() => setCredentialModalOpen(false)}
+          onSaved={onChange}
+        />
       ) : null}
     </li>
   );
@@ -266,9 +348,9 @@ function ToolkitCard({ toolkit }: { toolkit: ComposioToolkit }) {
   };
 
   return (
-    <li className="flex min-w-0 flex-col gap-4 rounded-xl border bg-card p-4 sm:flex-row sm:items-start">
-      <div className="flex min-w-0 flex-1 gap-3">
-        <div className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-background">
+    <li className="group flex min-h-40 min-w-0 flex-col rounded-2xl border bg-card p-4 transition-colors hover:border-foreground/20 hover:bg-muted/10">
+      <div className="flex min-w-0 items-start gap-3">
+        <div className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted/50">
           {toolkit.logo ? (
             <Image
               src={toolkit.logo}
@@ -286,74 +368,87 @@ function ToolkitCard({ toolkit }: { toolkit: ComposioToolkit }) {
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-medium">{toolkit.name}</p>
             {toolkit.noAuth ? (
-              <Badge variant="outline">No auth required</Badge>
+              <ConnectionStatus connected label="Ready" />
             ) : toolkit.connected ? (
-              <Badge variant="secondary">Connected</Badge>
-            ) : (
-              <Badge variant="outline">Not connected</Badge>
-            )}
+              <ConnectionStatus connected />
+            ) : null}
           </div>
-          <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{toolkit.description}</p>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {toolkit.toolsCount} {toolkit.toolsCount === 1 ? "tool" : "tools"}
+          <p className="mt-1 line-clamp-2 text-sm leading-5 text-muted-foreground">
+            {toolkit.description || `${toolkit.name} tools through Composio.`}
           </p>
         </div>
       </div>
-      {!toolkit.noAuth ? (
-        <Button
-          className="w-full sm:w-auto"
-          variant={toolkit.connected ? "outline" : "default"}
-          size="sm"
-          onClick={connect}
-        >
-          {toolkit.connected ? "Reconnect" : "Connect"}
-        </Button>
-      ) : null}
+      <div className="mt-auto flex items-end justify-between gap-3 pt-4">
+        <span className="text-xs text-muted-foreground">
+          {toolkit.toolsCount} {toolkit.toolsCount === 1 ? "tool" : "tools"}
+        </span>
+        {!toolkit.noAuth ? (
+          <Button className="rounded-xl" variant="outline" size="sm" onClick={connect}>
+            {toolkit.connected ? "Reconnect" : "Connect"}
+          </Button>
+        ) : null}
+      </div>
     </li>
   );
 }
 
-function ConnectionStatus({ connected }: { connected: boolean }) {
+function ConnectionStatus({ connected, label }: { connected: boolean; label?: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className={`size-2 rounded-full ${connected ? "bg-green-500" : "bg-destructive"}`} />
-      {connected ? "Connected" : "Not connected"}
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
+        connected
+          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+          : "bg-destructive/10 text-destructive"
+      }`}
+    >
+      {label ?? (connected ? "Connected" : "Not connected")}
     </span>
   );
 }
 
-function ApiKeyField({
-  name,
-  credKey,
-  connected,
+function CredentialModal({
+  connector,
+  onClose,
   onSaved,
 }: {
-  name: string;
-  credKey: string;
-  connected: boolean;
+  connector: Connector;
+  onClose: () => void;
   onSaved: () => void;
 }) {
-  const [editing, setEditing] = useState(!connected);
-  const [value, setValue] = useState("");
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    dialog.current?.showModal();
+    return () => dialog.current?.close();
+  }, []);
+
   async function save() {
+    const credentials = connector.requiredCreds.filter((key) => values[key]?.trim());
+    if (!connector.connected && credentials.length !== connector.requiredCreds.length) {
+      setError("Enter all required credentials.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
       const response = await fetch(
-        `${API_BASE}/connectors/${encodeURIComponent(name)}/credentials`,
+        `${API_BASE}/connectors/${encodeURIComponent(connector.name)}/credentials`,
         {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ key: credKey, value }),
+          body: JSON.stringify({
+            credentials: Object.fromEntries(
+              credentials.map((key) => [key, values[key]?.trim() ?? ""]),
+            ),
+          }),
         },
       );
       if (!response.ok) throw new Error(`Save failed (${response.status})`);
-      setValue("");
-      setEditing(false);
       onSaved();
+      onClose();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Save failed");
     } finally {
@@ -361,35 +456,79 @@ function ApiKeyField({
     }
   }
 
-  if (!editing) {
-    return (
-      <div className="flex items-center gap-4">
-        <span className="flex-1 text-sm font-medium">{credKey}</span>
-        <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-          Update
-        </Button>
-      </div>
-    );
-  }
-
   return (
-    <div className="grid gap-2">
-      <Label htmlFor={`cred-${name}-${credKey}`}>{credKey}</Label>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Input
-          id={`cred-${name}-${credKey}`}
-          type="password"
-          value={value}
-          placeholder={`Paste ${credKey}`}
-          onChange={(event) => setValue(event.target.value)}
-          autoComplete="off"
-        />
-        <Button onClick={save} disabled={saving || !value}>
-          {saving ? "Saving…" : "Save"}
-        </Button>
+    <dialog
+      ref={dialog}
+      aria-labelledby={`credential-title-${connector.name}`}
+      className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border bg-background p-0 text-foreground shadow-2xl backdrop:bg-black/35"
+      onCancel={(event) => {
+        if (saving) event.preventDefault();
+        else onClose();
+      }}
+    >
+      <div className="p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2
+              id={`credential-title-${connector.name}`}
+              className="text-lg font-semibold capitalize"
+            >
+              {connector.connected ? "Update" : "Connect"} {connector.name}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {connector.connected
+                ? "Enter only the credentials you want to replace."
+                : "Enter the credentials required by this integration."}
+            </p>
+          </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="Close"
+            disabled={saving}
+            onClick={onClose}
+          >
+            <X />
+          </Button>
+        </div>
+
+        <div className="mt-6 grid gap-4">
+          {connector.requiredCreds.map((key, index) => (
+            <div key={key} className="grid gap-2">
+              <Label htmlFor={`cred-${connector.name}-${key}`}>{key}</Label>
+              <Input
+                id={`cred-${connector.name}-${key}`}
+                type="password"
+                value={values[key] ?? ""}
+                placeholder={`Paste ${key}`}
+                autoComplete="off"
+                autoFocus={index === 0}
+                onChange={(event) =>
+                  setValues((current) => ({ ...current, [key]: event.target.value }))
+                }
+              />
+            </div>
+          ))}
+        </div>
+
+        {error ? (
+          <p role="alert" className="mt-4 text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
+        <div className="mt-6 flex justify-end gap-2">
+          <Button variant="outline" disabled={saving} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            onClick={save}
+            disabled={saving || !connector.requiredCreds.some((key) => values[key]?.trim())}
+          >
+            {saving ? "Saving…" : "Save credentials"}
+          </Button>
+        </div>
       </div>
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
-    </div>
+    </dialog>
   );
 }
 
@@ -398,12 +537,7 @@ function OAuthConnect({ name, connected }: { name: string; connected: boolean })
     window.location.assign(`${API_BASE}/connectors/${encodeURIComponent(name)}/connect`);
   };
   return (
-    <Button
-      className="w-full sm:w-auto"
-      variant={connected ? "outline" : "default"}
-      size="sm"
-      onClick={connect}
-    >
+    <Button className="rounded-xl" variant="outline" size="sm" onClick={connect}>
       {connected ? "Reconnect" : "Connect"}
     </Button>
   );

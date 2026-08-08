@@ -40,7 +40,7 @@ services:
       - ../config:/app/config:ro      # agent + skill JSON, read-only
       - gilly-data:/data              # SQLite store persists across runs
     ports:
-      - "4000:4000"                   # WEB_PORT — keep in sync with apps/control-plane/.env
+      - "${GILLY_BIND_ADDRESS:-127.0.0.1}:4000:4000" # trusted management API
 
   gateway:
     build:
@@ -56,7 +56,7 @@ services:
     volumes:
       - gilly-data:/data
     ports:
-      - "4100:4100"
+      - "${GILLY_BIND_ADDRESS:-127.0.0.1}:4100:4100"
 
   web:
     build:
@@ -64,14 +64,11 @@ services:
       dockerfile: docker/Dockerfile.web
     depends_on:
       - control-plane
-    env_file:
-      - path: ../apps/web/.env        # admin password and matching GILLY_ADMIN_TOKEN
-        required: false
     environment:
       # Next.js rewrites /api/* to the control-plane over the Docker network.
       API_URL: http://control-plane:4000
     ports:
-      - "3000:3000"
+      - "${GILLY_BIND_ADDRESS:-127.0.0.1}:3000:3000" # unauthenticated management UI
 
 volumes:
   gilly-data:

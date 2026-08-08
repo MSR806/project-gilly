@@ -1,10 +1,12 @@
 import { expect, test } from "bun:test";
 import {
-  gatewayToolGroups,
+  gatewayToolkitNames,
+  gatewayToolkits,
   modelOptionGroups,
   parseAgentValues,
   parseGatewayTools,
   parseModelCatalog,
+  toggleGatewayToolkit,
 } from "./agent-form-helpers";
 
 test("parseModelCatalog validates catalog entries", () => {
@@ -80,39 +82,112 @@ test("parseGatewayTools validates and unwraps the tool catalog", () => {
   );
 });
 
-test("gatewayToolGroups groups by toolkit and preserves selected unavailable tools", () => {
+test("gatewayToolkits groups exact tools by source and toolkit", () => {
   expect(
-    gatewayToolGroups(
-      [
+    gatewayToolkits([
+      {
+        name: "github.create_issue",
+        description: "Create an issue",
+        source: "composio",
+        toolkit: "github",
+        connected: true,
+      },
+      {
+        name: "github.get_issue",
+        description: "Get an issue",
+        source: "composio",
+        toolkit: "github",
+        connected: true,
+      },
+      {
+        name: "internal.search",
+        description: "Search records",
+        source: "custom",
+        toolkit: "internal",
+        connected: false,
+      },
+    ]),
+  ).toEqual([
+    {
+      id: "composio:github",
+      source: "composio",
+      toolkit: "github",
+      connected: true,
+      tools: [
         {
-          name: "GITHUB_CREATE_ISSUE",
+          name: "github.create_issue",
           description: "Create an issue",
           source: "composio",
           toolkit: "github",
           connected: true,
         },
         {
-          name: "custom_search",
+          name: "github.get_issue",
+          description: "Get an issue",
+          source: "composio",
+          toolkit: "github",
+          connected: true,
+        },
+      ],
+    },
+    {
+      id: "custom:internal",
+      source: "custom",
+      toolkit: "internal",
+      connected: false,
+      tools: [
+        {
+          name: "internal.search",
           description: "Search records",
           source: "custom",
           toolkit: "internal",
           connected: false,
         },
       ],
-      ["GITHUB_CREATE_ISSUE", "retired_tool"],
+    },
+  ]);
+});
+
+test("toggleGatewayToolkit selects partial toolkits and clears complete ones without losing legacy values", () => {
+  expect(
+    toggleGatewayToolkit(
+      ["github.create_issue", "legacy.tool"],
+      ["github.create_issue", "github.get_issue"],
     ),
-  ).toEqual([
+  ).toEqual(["github.create_issue", "legacy.tool", "github.get_issue"]);
+  expect(
+    toggleGatewayToolkit(
+      ["github.create_issue", "legacy.tool", "github.get_issue"],
+      ["github.create_issue", "github.get_issue"],
+    ),
+  ).toEqual(["legacy.tool"]);
+});
+
+test("gatewayToolkitNames shows one entry per exact-tool prefix", () => {
+  expect(
+    gatewayToolkitNames(["echo.ping", "gmail.send_email", "gmail.create_draft", "legacy_tool"]),
+  ).toEqual(["echo", "gmail", "legacy_tool"]);
+});
+
+test("gatewayToolkitNames uses catalog metadata for underscore-formatted tools", () => {
+  const catalog = [
     {
-      label: "github",
-      options: [{ value: "GITHUB_CREATE_ISSUE", description: "Create an issue" }],
+      name: "GITHUB_CREATE_ISSUE",
+      description: "Create an issue",
+      source: "composio" as const,
+      toolkit: "github",
+      connected: true,
     },
     {
-      label: "internal",
-      options: [{ value: "custom_search", description: "Search records (not connected)" }],
+      name: "GITHUB_GET_ISSUE",
+      description: "Get an issue",
+      source: "composio" as const,
+      toolkit: "github",
+      connected: true,
     },
-    {
-      label: "Unavailable",
-      options: [{ value: "retired_tool", description: "Unavailable in the current catalog" }],
-    },
+  ];
+
+  expect(gatewayToolkitNames(["GITHUB_CREATE_ISSUE", "GITHUB_GET_ISSUE"], catalog)).toEqual([
+    "github",
   ]);
 });
